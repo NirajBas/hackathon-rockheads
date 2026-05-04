@@ -55,12 +55,18 @@
     <script>
       const firebaseConfig={apiKey:"AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50",authDomain:"emergency-response-8701b.firebaseapp.com",projectId:"emergency-response-8701b",storageBucket:"emergency-response-8701b.firebasestorage.app",messagingSenderId:"558477100061",appId:"1:558477100061:web:074e110297b131b86172f4"};
       firebase.initializeApp(firebaseConfig); const db=firebase.firestore();
-      const AMBULANCE_ID=new URLSearchParams(location.search).get("id")||"amb_108_001";
-      console.log("[Ambulance Dashboard] Loading ambulance:", AMBULANCE_ID);
+      const params = new URLSearchParams(window.location.search);
+      const AMBULANCE_ID = params.get("id") || "amb_108_001";
+      console.log("Ambulance ID:", AMBULANCE_ID);
       let currentAssignment = null;
       let currentEmergency = null;
       let watchId = null;
       let lastLocationShareAt = 0;
+      let currentStatus = "assigned";
+      let ambulanceOrigin = { lat: null, lng: null };
+      let specialistUnsub = null;
+      let emergencyLocUnsub = null;
+      let notificationUnsub = null;
       const wfEmergencyIdEl = document.getElementById("wfEmergencyId");
       const wfClockEl = document.getElementById("wfClock");
       const wfStepsEl = document.getElementById("wfSteps");
@@ -70,6 +76,10 @@
         const data = doc.exists ? doc.data() : {};
         document.getElementById("title").textContent = `🚑 Ambulance ${AMBULANCE_ID} - ${data.type || "unknown"} Dashboard`;
         document.getElementById("ambMeta").textContent = `Priority: ${data.priority || "unknown"} | Status: ${data.status || "available"}`;
+        ambulanceOrigin = {
+          lat: Number(data.location?.lat) || null,
+          lng: Number(data.location?.lng) || null
+        };
       });
 
       function playAlert() {
@@ -112,13 +122,14 @@
 
       async function updateStatus(status, extra = {}) {
         if (!currentAssignment) return;
+        currentStatus = status;
         const history = Array.isArray(currentAssignment.statusHistory) ? currentAssignment.statusHistory : [];
         const update = { status, updatedAt: new Date().toISOString(), ...extra, statusHistory: [...history, { status, at: new Date().toISOString() }] };
         console.log("[Firestore Write] ambulanceAssignments status update:", { assignmentId: currentAssignment.id, ...update });
         await db.collection("ambulanceAssignments").doc(currentAssignment.id).set(update, { merge: true });
       }
 
-      function startLiveLocationSharing(currentStatus = "accepted") {
+      function startLiveLocationSharing() {
         if (!navigator.geolocation) return;
         if (watchId) navigator.geolocation.clearWatch(watchId);
         watchId = navigator.geolocation.watchPosition(async (pos) => {
@@ -150,6 +161,9 @@
         const h = a.hospitalInfo || {};
         const amb = a.ambulanceInfo || {};
         const hLoc = h.location || {};
+        console.log("Assignment found:", a);
+        console.log("Patient:", p);
+        console.log("Hospital:", h);
         panel.className = `card ${isNew ? "alert" : ""}`;
         panel.innerHTML = `
           <h3>🚨 NEW ASSIGNMENT!</h3>
@@ -168,8 +182,9 @@
           <div>Name: ${p.name || "Pending..."}</div>
           <div>Age: ${p.age || "Pending..."} years</div>
           <div>Blood Group: <span class="blood">${p.bloodGroup || "Pending..."}</span></div>
-          <div>Condition: ${p.emergencyType || "Pending..."}</div>
-          <div>Severity: ${(p.severity || "Pending...").toUpperCase()}</div>
+          <div>Condition: ${p.condition || "Pending..."}</div>
+          <div>Emergency Type: ${p.emergencyType || "Pending..."}</div>
+          <div>Severity: <span style="color:${p.severity === "high" ? "#ff4d4f" : p.severity === "medium" ? "#ffb300" : "#66bb6a"}">${(p.severity || "Pending...").toUpperCase()}</span></div>
           <div>Urgency: ${p.urgencyScore ?? "Pending..."}/10</div>
           <div>Description: ${p.condition || "Pending..."}</div>
           <div>Medical History: ${p.medicalHistory || "None"}</div>
@@ -194,7 +209,15 @@
           <div>ETA: ${h.estimatedArrival || "Pending..."}</div>
           <button class="btn nav" onclick="window.open('${navLink(hLoc.lat, hLoc.lng, true)}','_blank')">🏥 NAVIGATE TO HOSPITAL</button>
         `;
-        const routeLink = `https://www.google.com/maps/dir/?api=1&origin=${0},${0}&waypoints=${pLoc.lat || 0},${pLoc.lng || 0}&destination=${hLoc.lat || 0},${hLoc.lng || 0}`;
+        const routeLink = `https://www.google.com/maps/dir/?api=1&origin=${ambulanceOrigin.lat || 0},${ambulanceOrigin.lng || 0}&waypoints=${pLoc.lat || 0},${pLoc.lng || 0}&destination=${hLoc.lat || 0},${hLoc.lng || 0}`;
+        document.getElementById("statusCard").innerHTML = `
+          <h3>🚑 AMBULANCE INFO</h3>
+          <div>Type: <span class="blood">${amb.type || "Pending..."}</span></div>
+          <div>Priority: ${amb.priority || "Pending..."}</div>
+          <div>Distance to patient: ${amb.distanceToPatient || "Pending..."}</div>
+          <div>ETA to patient: ${amb.etaToPatient || "Pending..."}</div>
+          <div class="meta">Current status: ${a.status || "assigned"}</div>
+        `;
         document.getElementById("routeCard").innerHTML = `
           <h3>🗺️ YOUR ROUTE</h3>
           <div>1. Go to patient: ${amb.distanceToPatient || "Pending..."}</div>
@@ -203,45 +226,80 @@
           <div>ETA: ${h.estimatedArrival || "Pending..."}</div>
           <button class="btn nav" onclick="window.open('${routeLink}','_blank')">🗺️ FULL ROUTE MAP</button>
         `;
-        document.getElementById("acceptBtn").onclick = async () => { await updateStatus("accepted", { acceptedAt: new Date().toISOString() }); startLiveLocationSharing("accepted"); };
+        document.getElementById("acceptBtn").onclick = async () => { await updateStatus("accepted", { acceptedAt: new Date().toISOString() }); startLiveLocationSharing(); };
         document.getElementById("enRouteBtn").onclick = () => updateStatus("en_route_patient");
         document.getElementById("pickedBtn").onclick = () => updateStatus("picked_up", { pickedUpAt: new Date().toISOString() });
         document.getElementById("hospitalBtn").onclick = () => updateStatus("en_route_hospital", { enRouteHospitalAt: new Date().toISOString() });
-        document.getElementById("arrivedBtn").onclick = () => updateStatus("arrived_at_hospital", { arrivedAt: new Date().toISOString() });
+        document.getElementById("arrivedBtn").onclick = () => updateStatus("completed", { arrivedAt: new Date().toISOString() });
         renderWorkflow();
       }
 
-      db.collection("ambulanceAssignments").where("ambulanceId","==",AMBULANCE_ID).orderBy("assignedAt","desc").limit(1).onSnapshot((snap)=>{
-        if (snap.empty) return render(null, false);
-        const next = { id: snap.docs[0].id, ...snap.docs[0].data() };
-        const isNew = !currentAssignment || currentAssignment.id !== next.id;
-        currentAssignment = next;
-        currentEmergency = currentAssignment.emergencyId;
-        db.collection("notifications").where("emergencyId", "==", currentEmergency).limit(1).onSnapshot((n) => {
+      function attachEmergencyListeners(emergencyId) {
+        if (!emergencyId) return;
+        if (notificationUnsub) notificationUnsub();
+        if (emergencyLocUnsub) emergencyLocUnsub();
+        if (specialistUnsub) specialistUnsub();
+        notificationUnsub = db.collection("notifications").where("emergencyId", "==", emergencyId).limit(1).onSnapshot((n) => {
           wfNotification = n.empty ? null : n.docs[0].data();
           renderWorkflow();
         });
-        db.collection("emergencies").doc(currentEmergency).onSnapshot((doc) => {
-          if (doc.exists) {
+        emergencyLocUnsub = db.collection("emergencies").doc(emergencyId).onSnapshot((doc) => {
+          if (doc.exists && currentAssignment) {
             const em = doc.data() || {};
             currentAssignment.patientLocation = em.patientLocation || currentAssignment.patientLocation;
             render(currentAssignment, false);
           }
         });
-        db.collection("hospitalResponses").where("emergencyId", "==", currentEmergency).orderBy("respondedAt", "desc").limit(1).onSnapshot((resp) => {
+        specialistUnsub = db.collection("hospitalResponses").where("emergencyId", "==", emergencyId).orderBy("respondedAt", "desc").limit(1).onSnapshot((resp) => {
           if (!resp.empty && currentAssignment) {
             const row = resp.docs[0].data() || {};
             currentAssignment.hospitalInfo = currentAssignment.hospitalInfo || {};
             currentAssignment.hospitalInfo.specialistName = row.specialistName || currentAssignment.hospitalInfo.specialistName;
             currentAssignment.hospitalInfo.confirmedIcuBeds = row.icuBeds ?? currentAssignment.hospitalInfo.confirmedIcuBeds;
             currentAssignment.hospitalInfo.confirmedErBeds = row.erBeds ?? currentAssignment.hospitalInfo.confirmedErBeds;
-            document.getElementById("statusCard").innerHTML = `<div>🏥 Hospital confirmed: ${row.specialistName || "Specialist"} ready</div>`;
             render(currentAssignment, false);
           }
         });
-        if (isNew) playAlert();
-        render(currentAssignment, isNew);
-      });
+      }
+
+      db.collection("ambulanceAssignments")
+        .where("ambulanceId", "==", AMBULANCE_ID)
+        .where("status", "==", "assigned")
+        .onSnapshot((snapshot) => {
+          if (snapshot.empty) {
+            console.log("No assignment found for", AMBULANCE_ID);
+            return;
+          }
+          const doc = snapshot.docs[0];
+          const next = { id: doc.id, ...doc.data() };
+          const isNew = !currentAssignment || currentAssignment.id !== next.id;
+          currentAssignment = next;
+          currentEmergency = next.emergencyId;
+          currentStatus = next.status || "assigned";
+          attachEmergencyListeners(currentEmergency);
+          if (isNew) playAlert();
+          render(next, isNew);
+        });
+
+      db.collection("ambulanceAssignments")
+        .where("ambulanceId", "==", AMBULANCE_ID)
+        .onSnapshot((snapshot) => {
+          if (snapshot.empty) {
+            render(null, false);
+            return;
+          }
+          const all = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+          const orderedStatus = ["assigned", "accepted", "en_route_patient", "picked_up", "en_route_hospital", "completed"];
+          all.sort((a, b) => orderedStatus.indexOf(b.status || "assigned") - orderedStatus.indexOf(a.status || "assigned"));
+          const next = all[0];
+          if (!currentAssignment || currentAssignment.id !== next.id || currentAssignment.status !== next.status) {
+            currentAssignment = next;
+            currentEmergency = next.emergencyId;
+            currentStatus = next.status || currentStatus;
+            attachEmergencyListeners(currentEmergency);
+            render(next, false);
+          }
+        });
     </script>
   </body>
 </html>
