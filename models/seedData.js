@@ -83,7 +83,7 @@ const users = [
     id: "user_001",
     name: "Demo User",
     email: "demo.user@example.com",
-    phone: "+910000000001"
+    phone: "+917275272989"
   }
 ];
 

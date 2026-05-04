@@ -5,6 +5,7 @@ const aiService = require("../services/aiService");
 const dispatchService = require("../services/dispatchService");
 const hospitalService = require("../services/hospitalService");
 const logger = require("../utils/logger");
+const { sendEmergencySMS } = require("../services/smsService");
 
 const estimateEta = (distanceKm) => {
   const mins = Math.max(1, Math.round((Number(distanceKm) / 40) * 60));
@@ -189,6 +190,20 @@ const createEmergency = async (req, res) => {
       hospitalName: selectedHospital.name,
       hospitalLocation: selectedHospital.location
     });
+    const userDoc = await db.collection("users").doc(userId).get();
+const userPhone = userDoc.data()?.phone;
+if (userPhone) {
+  await sendEmergencySMS(userPhone, {
+    emergencyType,
+    severity,
+    urgencyScore,
+    ambulanceType: ambulance.type,
+    ambulanceId:   ambulance.id,
+    hospitalName:  hospital.name,
+    eta,
+    emergencyId
+  });
+}
 
     const emergencyUpdate = {
       assignedHospital: selectedHospital.id,
