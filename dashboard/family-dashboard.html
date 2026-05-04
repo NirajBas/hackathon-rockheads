@@ -33,6 +33,41 @@
         min-height: 100vh;
         line-height: 1.5;
       }
+      .workflow-sidebar {
+        position: fixed;
+        right: 0;
+        top: 0;
+        width: 300px;
+        height: 100vh;
+        background: #111;
+        border-left: 1px solid #222;
+        overflow-y: auto;
+        padding: 20px;
+        z-index: 100;
+      }
+      .main-content {
+        margin-right: 300px;
+      }
+      .wf-step {
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 8px;
+        margin-bottom: 8px;
+        background: #161616;
+      }
+      .wf-step.done {
+        border-color: #1f8f4a;
+        background: #0f2417;
+      }
+      .wf-step.active {
+        border-color: #d1a700;
+        animation: pulseWf 1.4s infinite;
+      }
+      @keyframes pulseWf {
+        50% {
+          border-color: #f7d43a;
+        }
+      }
       a {
         color: var(--green);
         text-decoration: none;
@@ -438,7 +473,7 @@
       </div>
     </header>
 
-    <main class="wrap">
+    <main class="wrap main-content">
       <section class="card emergency-card" aria-labelledby="em-title">
         <h2 id="em-title">🚨 EMERGENCY TRIGGER</h2>
         <div class="field">
@@ -490,6 +525,13 @@
         <p id="historyEmpty" class="meta" style="margin: 0">No emergencies recorded yet.</p>
       </section>
     </main>
+
+    <aside class="workflow-sidebar">
+      <h3>📊 Live Workflow</h3>
+      <div class="meta" id="wfEmergencyId">No active emergency</div>
+      <div class="meta" id="wfClock"></div>
+      <div id="wfSteps"></div>
+    </aside>
 
     <!-- Add member modal -->
     <div class="modal-backdrop" id="modalAdd" role="dialog" aria-modal="true" aria-labelledby="addTitle">
@@ -594,6 +636,83 @@
       let lastDispatchResponse = null;
       let unSubAmbulanceLocation = null;
       let unSubHospitalNotification = null;
+      let wfEmergencyId = null;
+      let wfUnsubs = [];
+      let lastAmbulanceLocation = null;
+      let lastSpokenAssignmentStatus = null;
+      const wfEmergencyIdEl = document.getElementById("wfEmergencyId");
+      const wfClockEl = document.getElementById("wfClock");
+      const wfStepsEl = document.getElementById("wfSteps");
+      let wfState = { emergency: null, requests: [], specialist: null, notification: null, assignment: null };
+      setInterval(() => {
+        wfClockEl.textContent = new Date().toLocaleTimeString();
+      }, 1000);
+
+      function renderWorkflow() {
+        if (!wfEmergencyId || !wfState.emergency) {
+          wfEmergencyIdEl.textContent = "No active emergency";
+          wfStepsEl.innerHTML = '<div class="meta">No active emergency</div>';
+          return;
+        }
+        const e = wfState.emergency || {};
+        const a = wfState.assignment || {};
+        const s = [
+          { t: "🚨 Emergency Triggered", d: `${e.patientName || "Unknown"} • ${e.severity || "-"}`, done: !!e.id },
+          { t: "🤖 AI Classified", d: `${e.emergencyType || "-"} • ${e.urgencyScore || "-"}/10`, done: !!e.urgencyScore },
+          { t: "📡 Hospitals Notified", d: `${wfState.requests.length} hospitals checked`, done: wfState.requests.length > 0 },
+          { t: "👨‍⚕️ Specialist Found", d: wfState.specialist ? `${wfState.specialist.specialistName || "Doctor"} at ${wfState.specialist.hospitalName || "-"}` : "Pending...", done: !!wfState.specialist },
+          { t: "🏥 Hospital Assigned", d: wfState.notification ? `${wfState.notification.hospitalName || "-"} • ${wfState.notification.ambulanceDistance || "-"}` : "Pending...", done: !!wfState.notification },
+          { t: "🚑 Ambulance Dispatched", d: `${a.ambulanceInfo?.type || "-"} • ${a.ambulanceInfo?.etaToPatient || a.ambulanceInfo?.estimatedArrival || "-"}`, done: !!a.ambulanceId },
+          { t: "✅ Patient Picked Up", d: a.pickedUpAt || "Pending...", done: ["picked_up", "en_route_hospital", "arrived_at_hospital", "completed"].includes(a.status) },
+          { t: "🏁 Arrived at Hospital", d: a.arrivedAt || "Pending...", done: ["arrived_at_hospital", "completed"].includes(a.status) }
+        ];
+        const active = s.findIndex((x) => !x.done);
+        wfEmergencyIdEl.textContent = `Emergency: ${wfEmergencyId}`;
+        wfStepsEl.innerHTML = s.map((x, i) => `<div class="wf-step ${x.done ? "done" : i === active ? "active" : ""}"><div>${x.t}</div><div class="meta">${x.d}</div></div>`).join("");
+      }
+
+      function bindWorkflow(emergencyId) {
+        if (!emergencyId) return;
+        wfEmergencyId = emergencyId;
+        wfUnsubs.forEach((u) => u && u());
+        wfUnsubs = [];
+        wfUnsubs.push(
+          db.collection("emergencies").doc(emergencyId).onSnapshot((doc) => {
+            wfState.emergency = doc.exists ? { id: doc.id, ...doc.data() } : null;
+            renderWorkflow();
+          })
+        );
+        wfUnsubs.push(
+          db.collection("hospitalRequests").where("emergencyId", "==", emergencyId).onSnapshot((snap) => {
+            wfState.requests = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            wfState.specialist = wfState.requests.find((x) => x.hasSpecialist) || null;
+            renderWorkflow();
+          })
+        );
+        wfUnsubs.push(
+          db.collection("notifications").where("emergencyId", "==", emergencyId).limit(1).onSnapshot((snap) => {
+            wfState.notification = snap.empty ? null : snap.docs[0].data();
+            renderWorkflow();
+          })
+        );
+        wfUnsubs.push(
+          db.collection("ambulanceAssignments").where("emergencyId", "==", emergencyId).limit(1).onSnapshot((snap) => {
+            wfState.assignment = snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+            const status = wfState.assignment?.status;
+            if (status && status !== lastSpokenAssignmentStatus) {
+              if (status === "accepted") {
+                speakText("Your ambulance is now tracking live. Driver is on the way.");
+              } else if (status === "picked_up") {
+                speakText("You are now in the ambulance.");
+              } else if (status === "arrived_at_hospital" || status === "completed") {
+                speakText("Arrived at hospital.");
+              }
+              lastSpokenAssignmentStatus = status;
+            }
+            renderWorkflow();
+          })
+        );
+      }
 
       function bloodClass(bg) {
         const m = {
@@ -813,9 +932,6 @@
         const ambulanceUrl = amb.id
           ? `http://localhost:3000/ambulance?id=${encodeURIComponent(amb.id)}`
           : "http://localhost:3000/ambulance";
-        const workflowUrl = data.emergencyId
-          ? `http://localhost:3000/workflow?id=${encodeURIComponent(data.emergencyId)}`
-          : "http://localhost:3000/workflow";
         return `
           <div><strong>✅ Emergency Dispatched!</strong></div>
           <div style="margin-top:10px"><strong>Severity detected</strong>: ${data.severity || "—"} (urgency ${data.urgencyScore ?? "—"}/10)</div>
@@ -827,7 +943,6 @@
           <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
             <a class="btn" href="${hospitalUrl}" target="_blank" rel="noreferrer">🏥 Open Hospital Dashboard</a>
             <a class="btn" href="${ambulanceUrl}" target="_blank" rel="noreferrer">🚑 Open Ambulance Dashboard</a>
-            <a class="btn" href="${workflowUrl}" target="_blank" rel="noreferrer">📊 Open Workflow Monitor</a>
           </div>
         `;
       }
@@ -864,29 +979,36 @@
       }
 
       function subscribeAmbulanceLocation(ambulanceId, emergencyId, etaText) {
-        if (!ambulanceId) return;
-        if (unSubAmbulanceLocation) unSubAmbulanceLocation();
-        unSubAmbulanceLocation = db.collection("ambulanceLocations").doc(ambulanceId).onSnapshot((doc) => {
-          if (!doc.exists) return;
-          const a = doc.data() || {};
-          if (a.emergencyId && emergencyId && a.emergencyId !== emergencyId) return;
+        const renderAmbulanceCard = (a) => {
+          if (!a) return;
           const secs = a.updatedAt
             ? Math.max(0, Math.floor((Date.now() - new Date(a.updatedAt).getTime()) / 1000))
             : null;
           const stale = secs !== null && secs > 60;
           const card = document.getElementById("ambulanceTrackCard");
           card.innerHTML = `
-            <div><strong>🚑 AMBULANCE EN ROUTE</strong></div>
-            <div style="margin-top:8px">Type: ${(lastDispatchResponse?.ambulance?.type || "Unknown")} | Status: En route to you</div>
+            <div><strong>🚑 AMBULANCE LIVE LOCATION</strong></div>
+            <div style="margin-top:8px">Type: ${(lastDispatchResponse?.ambulance?.type || "Unknown")} | Status: ${a.status || "En route to you"}</div>
             <div>Last updated: ${secs === null ? "—" : `${secs} seconds ago`}</div>
             <div>Ambulance Location: 📍 ${a.lat ?? "—"}, ${a.lng ?? "—"}</div>
+            <div>Speed: ${a.speed != null ? `${a.speed} km/h` : "—"}</div>
             <a href="https://www.google.com/maps?q=${a.lat || 0},${a.lng || 0}" target="_blank" rel="noreferrer">🗺️ View on Google Maps</a>
             <div style="margin-top:6px">Your Location: 📍 ${currentLocation?.lat ?? "—"}, ${currentLocation?.lng ?? "—"}</div>
             <div>ETA: ~${etaText || "a few"} minutes</div>
-            ${stale ? '<div style="margin-top:6px;color:#ff9900">Location signal lost - ambulance still coming</div>' : ""}
+            ${stale ? '<div style="margin-top:6px;color:#ff9900">⚠️ Location signal lost - ambulance still en route</div>' : ""}
           `;
           card.classList.remove("hidden");
+        };
+        if (!ambulanceId) return;
+        if (unSubAmbulanceLocation) unSubAmbulanceLocation();
+        unSubAmbulanceLocation = db.collection("ambulanceLocations").doc(ambulanceId).onSnapshot((doc) => {
+          if (!doc.exists) return;
+          const a = doc.data() || {};
+          if (a.emergencyId && emergencyId && a.emergencyId !== emergencyId) return;
+          lastAmbulanceLocation = a;
+          renderAmbulanceCard(a);
         });
+        setInterval(() => renderAmbulanceCard(lastAmbulanceLocation), 1000);
       }
 
       function pushHistory(entry) {
@@ -1018,6 +1140,7 @@
             data.emergencyId,
             String(data?.ambulance?.estimatedArrival || "").replace(/[^\d]/g, "")
           );
+          bindWorkflow(data.emergencyId);
           const amb = data.ambulance || {};
           pushHistory({
             at: new Date().toISOString(),

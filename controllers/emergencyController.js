@@ -93,6 +93,7 @@ const createEmergency = async (req, res) => {
       patientName: patientName || "Unknown",
       patientAge: Number.isFinite(Number(patientAge)) ? Number(patientAge) : "Unknown",
       location: patientLocation,
+      patientLocation,
       status: knownCondition ? "awaiting_specialist_response" : "broadcasting_hospitals",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -206,35 +207,54 @@ const createEmergency = async (req, res) => {
       id: assignmentId,
       emergencyId,
       ambulanceId: ambulance.id,
+      status: "assigned",
       patientInfo: {
-        name: patientName || "Unknown",
-        age: Number.isFinite(Number(patientAge)) ? Number(patientAge) : "Unknown",
-        bloodGroup: bloodGroup || "Unknown",
+        name: req.body.patientName || "Unknown",
+        age: req.body.patientAge || "Unknown",
+        bloodGroup: req.body.bloodGroup || "Unknown",
         emergencyType,
         severity,
         urgencyScore,
-        location: patientLocation
+        condition: req.body.trigger || trigger || "Unknown",
+        familyContact: req.body.userId || userId || "Unknown",
+        medicalHistory: req.body.medicalHistory || "None"
+      },
+      patientLocation: {
+        lat: req.body.location?.lat ?? null,
+        lng: req.body.location?.lng ?? null,
+        address: "Live GPS location",
+        lastUpdated: new Date().toISOString()
       },
       hospitalInfo: {
         id: selectedHospital.id,
         name: selectedHospital.name,
+        address: selectedHospital.address || "Bangalore",
         location: selectedHospital.location || null,
         icuBeds: selectedHospital.icuBeds || 0,
         erBeds: selectedHospital.erBeds || 0,
-        specialistName: specialistResponse?.specialistName || null,
+        confirmedIcuBeds: selectedHospital.icuBeds || 0,
+        confirmedErBeds: selectedHospital.erBeds || 0,
+        specialistName: specialistResponse?.specialistName || "",
+        phone: selectedHospital.phone || "080-12345678",
         specialty: emergencyType,
-        distance: selectedHospital.distance || null
+        distance: selectedHospital.distance || null,
+        estimatedArrival: eta
       },
       ambulanceInfo: {
         id: ambulance.id,
         type: ambulance.type,
         priority: ambulance.priority,
+        distanceToPatient: ambulance.distance || "unknown",
+        etaToPatient: ambulance.estimatedArrival || "unknown",
         distance: ambulance.distance || "unknown",
         estimatedArrival: ambulance.estimatedArrival || "unknown"
       },
-      status: "assigned",
       assignmentReason,
       assignedAt: admin.firestore.FieldValue.serverTimestamp(),
+      acceptedAt: null,
+      pickedUpAt: null,
+      enRouteHospitalAt: null,
+      arrivedAt: null,
       statusHistory: [
         {
           status: "assigned",

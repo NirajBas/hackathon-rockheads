@@ -6,7 +6,10 @@
     <title>Ambulance Driver Dashboard</title>
     <style>
       body { margin: 0; font-family: Arial, sans-serif; background: #0b0b0b; color: #fff; }
-      .wrap { max-width: 1000px; margin: 0 auto; padding: 16px; }
+      .workflow-sidebar { position: fixed; right: 0; top: 0; width: 300px; height: 100vh; background: #111; border-left: 1px solid #222; overflow-y: auto; padding: 20px; z-index: 100; }
+      .main-content { margin-right: 300px; }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .card { background: #151515; border: 1px solid #333; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
       .alert { border: 2px solid #ff9800; animation: flash 1s infinite; }
       @keyframes flash { 50% { border-color: #ff5722; } }
@@ -14,16 +17,39 @@
       .ok { background: #00c853; color: #011; }
       .nav { background: #ff9800; color: #111; }
       .meta { color: #bbb; font-size: 13px; }
+      .blood { color: #ff6b6b; font-size: 22px; font-weight: 700; }
+      .wf-step { border: 1px solid #333; border-radius: 8px; padding: 8px; margin-bottom: 8px; background: #161616; }
+      .wf-step.done { border-color: #1f8f4a; background: #0f2417; }
+      .wf-step.active { border-color: #d1a700; animation: pulse 1.4s infinite; }
+      @keyframes pulse { 50% { border-color: #f7d43a; } }
+      @media (max-width: 900px) { .workflow-sidebar { width: 100%; height: 48px; overflow: hidden; bottom: 0; top: auto; } .main-content { margin-right: 0; margin-bottom: 48px; } .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
-    <div class="wrap">
+    <div class="main-content wrap">
       <div class="card">
         <h2 id="title">🚑 Loading ambulance...</h2>
         <div id="ambMeta" class="meta"></div>
       </div>
+      <div class="grid">
+        <div>
+          <div id="patientCard" class="card"><div class="meta">Waiting assignment...</div></div>
+          <div id="patientLocCard" class="card"><div class="meta">Patient GPS pending...</div></div>
+        </div>
+        <div>
+          <div id="hospitalCard" class="card"><div class="meta">Hospital details pending...</div></div>
+          <div id="routeCard" class="card"><div class="meta">Route summary pending...</div></div>
+          <div id="statusCard" class="card"><div class="meta">No active assignment...</div></div>
+        </div>
+      </div>
       <div id="assignmentPanel" class="card"><div class="meta">Listening for assignments...</div></div>
     </div>
+    <aside class="workflow-sidebar">
+      <h3>📊 Live Workflow</h3>
+      <div class="meta" id="wfEmergencyId">No active emergency</div>
+      <div class="meta" id="wfClock"></div>
+      <div id="wfSteps"></div>
+    </aside>
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
     <script>
@@ -32,7 +58,14 @@
       const AMBULANCE_ID=new URLSearchParams(location.search).get("id")||"amb_108_001";
       console.log("[Ambulance Dashboard] Loading ambulance:", AMBULANCE_ID);
       let currentAssignment = null;
+      let currentEmergency = null;
       let watchId = null;
+      let lastLocationShareAt = 0;
+      const wfEmergencyIdEl = document.getElementById("wfEmergencyId");
+      const wfClockEl = document.getElementById("wfClock");
+      const wfStepsEl = document.getElementById("wfSteps");
+      let wfNotification = null;
+      setInterval(() => { wfClockEl.textContent = new Date().toLocaleTimeString(); }, 1000);
       db.collection("ambulances").doc(AMBULANCE_ID).get().then((doc) => {
         const data = doc.exists ? doc.data() : {};
         document.getElementById("title").textContent = `🚑 Ambulance ${AMBULANCE_ID} - ${data.type || "unknown"} Dashboard`;
@@ -54,6 +87,29 @@
         return dir ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}` : `https://www.google.com/maps?q=${lat},${lng}`;
       }
 
+      function renderWorkflow() {
+        if (!currentAssignment) {
+          wfEmergencyIdEl.textContent = "No active emergency";
+          wfStepsEl.innerHTML = '<div class="meta">No active emergency</div>';
+          return;
+        }
+        wfEmergencyIdEl.textContent = `Emergency: ${currentAssignment.emergencyId}`;
+        const step5Done = !!wfNotification || !!currentAssignment.hospitalInfo?.id;
+        const status = currentAssignment.status;
+        const done6 = ["accepted", "en_route_patient", "picked_up", "en_route_hospital", "arrived_at_hospital", "completed"].includes(status);
+        const done7 = ["picked_up", "en_route_hospital", "arrived_at_hospital", "completed"].includes(status);
+        const done8 = ["arrived_at_hospital", "completed"].includes(status);
+        const steps = [
+          { done: step5Done, title: "🏥 Hospital Assigned", detail: currentAssignment.hospitalInfo?.name || "Pending..." },
+          { done: !!currentAssignment.ambulanceInfo?.id, title: "🚑 Ambulance Dispatched", detail: `${currentAssignment.ambulanceInfo?.type || "-"} • ${currentAssignment.ambulanceInfo?.etaToPatient || "-"}` },
+          { done: done6, title: "✅ Ambulance Accepted", detail: currentAssignment.acceptedAt || "Pending..." },
+          { done: done7, title: "✅ Patient Picked Up", detail: currentAssignment.pickedUpAt || "Pending..." },
+          { done: done8, title: "🏁 Arrived at Hospital", detail: currentAssignment.arrivedAt || "Pending..." }
+        ];
+        const active = steps.findIndex((s) => !s.done);
+        wfStepsEl.innerHTML = steps.map((s, i) => `<div class="wf-step ${s.done ? "done" : i === active ? "active" : ""}"><div>${s.title}</div><div class="meta">${s.detail}</div></div>`).join("");
+      }
+
       async function updateStatus(status, extra = {}) {
         if (!currentAssignment) return;
         const history = Array.isArray(currentAssignment.statusHistory) ? currentAssignment.statusHistory : [];
@@ -62,49 +118,97 @@
         await db.collection("ambulanceAssignments").doc(currentAssignment.id).set(update, { merge: true });
       }
 
-      function startLiveLocationSharing() {
+      function startLiveLocationSharing(currentStatus = "accepted") {
         if (!navigator.geolocation) return;
         if (watchId) navigator.geolocation.clearWatch(watchId);
         watchId = navigator.geolocation.watchPosition(async (pos) => {
           if (!currentAssignment) return;
-          const payload = { lat: Number(pos.coords.latitude), lng: Number(pos.coords.longitude), updatedAt: new Date().toISOString(), emergencyId: currentAssignment.emergencyId };
+          const now = Date.now();
+          if (now - lastLocationShareAt < 10000) return;
+          lastLocationShareAt = now;
+          const payload = {
+            ambulanceId: AMBULANCE_ID,
+            emergencyId: currentAssignment.emergencyId,
+            lat: Number(pos.coords.latitude),
+            lng: Number(pos.coords.longitude),
+            accuracy: Number(pos.coords.accuracy) || 0,
+            speed: Number(pos.coords.speed) || 0,
+            status: currentStatus,
+            updatedAt: new Date().toISOString()
+          };
           console.log("[Firestore Write] ambulanceLocations:", { ambulanceId: AMBULANCE_ID, ...payload });
           await db.collection("ambulanceLocations").doc(AMBULANCE_ID).set(payload, { merge: true });
+          document.getElementById("ambMeta").textContent = `📡 Sharing live location with patient | Last shared: ${new Date().toLocaleTimeString()}`;
         }, () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 });
       }
 
       function render(a, isNew) {
         const panel = document.getElementById("assignmentPanel");
-        if (!a) { panel.innerHTML = '<div class="meta">No active assignment.</div>'; return; }
+        if (!a) { panel.innerHTML = '<div class="meta">No active assignment.</div>'; renderWorkflow(); return; }
         const p = a.patientInfo || {};
+        const pLoc = a.patientLocation || {};
         const h = a.hospitalInfo || {};
         const amb = a.ambulanceInfo || {};
-        const loc = p.location || {};
         const hLoc = h.location || {};
         panel.className = `card ${isNew ? "alert" : ""}`;
         panel.innerHTML = `
           <h3>🚨 NEW ASSIGNMENT!</h3>
-          <div><strong>PATIENT:</strong> ${p.name || "Unknown"} | ${p.age ?? "-"} | ${p.bloodGroup || "-"}</div>
-          <div><strong>Condition:</strong> ${p.emergencyType || "-"} - ${(p.severity || "").toUpperCase()} | Urgency ${p.urgencyScore ?? "-"}/10</div>
-          <div><strong>Patient Location:</strong> ${loc.lat ?? "-"}, ${loc.lng ?? "-"}</div>
-          <button class="btn nav" onclick="window.open('${navLink(loc.lat, loc.lng, true)}','_blank')">🗺️ Navigate to Patient</button>
-          <div style="margin-top:8px"><strong>Hospital:</strong> ${h.name || "Unknown"} | Specialist ${h.specialistName || "Pending"} | ICU ${h.confirmedIcuBeds ?? h.icuBeds ?? "-"}</div>
-          <div><strong>Hospital Location:</strong> ${hLoc.lat ?? "-"}, ${hLoc.lng ?? "-"}</div>
-          <button class="btn nav" onclick="window.open('${navLink(hLoc.lat, hLoc.lng, true)}','_blank')">🏥 Navigate to Hospital</button>
-          <div class="meta">Distance to patient: ${amb.distance || "-"} | ETA: ${amb.estimatedArrival || "-"}</div>
+          <div><strong>Emergency:</strong> ${a.emergencyId}</div>
+          <div class="meta">Status: ${a.status || "assigned"}</div>
           <div>
             <button class="btn ok" id="acceptBtn">✅ Accept Assignment</button>
             <button class="btn ok" id="enRouteBtn">🚗 En Route to Patient</button>
             <button class="btn ok" id="pickedBtn">✅ Patient Picked Up</button>
-            <button class="btn ok" id="arriveBtn">🏥 Arriving at Hospital</button>
-            <button class="btn ok" id="doneBtn">✅ Handover Complete</button>
+            <button class="btn ok" id="hospitalBtn">🏥 En Route to Hospital</button>
+            <button class="btn ok" id="arrivedBtn">🏁 Arrived at Hospital</button>
           </div>
         `;
-        document.getElementById("acceptBtn").onclick = async () => { await updateStatus("accepted"); startLiveLocationSharing(); };
+        document.getElementById("patientCard").innerHTML = `
+          <h3>👤 PATIENT INFORMATION</h3>
+          <div>Name: ${p.name || "Pending..."}</div>
+          <div>Age: ${p.age || "Pending..."} years</div>
+          <div>Blood Group: <span class="blood">${p.bloodGroup || "Pending..."}</span></div>
+          <div>Condition: ${p.emergencyType || "Pending..."}</div>
+          <div>Severity: ${(p.severity || "Pending...").toUpperCase()}</div>
+          <div>Urgency: ${p.urgencyScore ?? "Pending..."}/10</div>
+          <div>Description: ${p.condition || "Pending..."}</div>
+          <div>Medical History: ${p.medicalHistory || "None"}</div>
+          <div>Family Contact: ${p.familyContact || "Pending..."}</div>
+        `;
+        document.getElementById("patientLocCard").innerHTML = `
+          <h3>📍 PATIENT LOCATION (LIVE)</h3>
+          <div>Lat: ${pLoc.lat ?? "Pending..."}</div>
+          <div>Lng: ${pLoc.lng ?? "Pending..."}</div>
+          <div>Last updated: ${pLoc.lastUpdated ? Math.max(0, Math.floor((Date.now()-new Date(pLoc.lastUpdated).getTime())/1000)) + "s ago" : "Pending..."}</div>
+          <button class="btn nav" onclick="window.open('${navLink(pLoc.lat, pLoc.lng, true)}','_blank')">🗺️ NAVIGATE TO PATIENT</button>
+        `;
+        document.getElementById("hospitalCard").innerHTML = `
+          <h3>🏥 DESTINATION HOSPITAL</h3>
+          <div>Name: ${h.name || "Pending..."}</div>
+          <div>Phone: ${h.phone || "Pending..."}</div>
+          <div>Specialty: ${h.specialty || "Pending..."}</div>
+          <div>ICU Beds: ${h.confirmedIcuBeds ?? h.icuBeds ?? "Pending..."}</div>
+          <div>ER Beds: ${h.confirmedErBeds ?? h.erBeds ?? "Pending..."}</div>
+          <div>Specialist: ${h.specialistName || "Pending..."}</div>
+          <div>Distance: ${h.distance || "Pending..."}</div>
+          <div>ETA: ${h.estimatedArrival || "Pending..."}</div>
+          <button class="btn nav" onclick="window.open('${navLink(hLoc.lat, hLoc.lng, true)}','_blank')">🏥 NAVIGATE TO HOSPITAL</button>
+        `;
+        const routeLink = `https://www.google.com/maps/dir/?api=1&origin=${0},${0}&waypoints=${pLoc.lat || 0},${pLoc.lng || 0}&destination=${hLoc.lat || 0},${hLoc.lng || 0}`;
+        document.getElementById("routeCard").innerHTML = `
+          <h3>🗺️ YOUR ROUTE</h3>
+          <div>1. Go to patient: ${amb.distanceToPatient || "Pending..."}</div>
+          <div>ETA: ${amb.etaToPatient || "Pending..."}</div>
+          <div>2. Go to hospital: ${h.distance || "Pending..."}</div>
+          <div>ETA: ${h.estimatedArrival || "Pending..."}</div>
+          <button class="btn nav" onclick="window.open('${routeLink}','_blank')">🗺️ FULL ROUTE MAP</button>
+        `;
+        document.getElementById("acceptBtn").onclick = async () => { await updateStatus("accepted", { acceptedAt: new Date().toISOString() }); startLiveLocationSharing("accepted"); };
         document.getElementById("enRouteBtn").onclick = () => updateStatus("en_route_patient");
         document.getElementById("pickedBtn").onclick = () => updateStatus("picked_up", { pickedUpAt: new Date().toISOString() });
-        document.getElementById("arriveBtn").onclick = () => updateStatus("arriving_hospital");
-        document.getElementById("doneBtn").onclick = () => updateStatus("completed", { completedAt: new Date().toISOString() });
+        document.getElementById("hospitalBtn").onclick = () => updateStatus("en_route_hospital", { enRouteHospitalAt: new Date().toISOString() });
+        document.getElementById("arrivedBtn").onclick = () => updateStatus("arrived_at_hospital", { arrivedAt: new Date().toISOString() });
+        renderWorkflow();
       }
 
       db.collection("ambulanceAssignments").where("ambulanceId","==",AMBULANCE_ID).orderBy("assignedAt","desc").limit(1).onSnapshot((snap)=>{
@@ -112,6 +216,29 @@
         const next = { id: snap.docs[0].id, ...snap.docs[0].data() };
         const isNew = !currentAssignment || currentAssignment.id !== next.id;
         currentAssignment = next;
+        currentEmergency = currentAssignment.emergencyId;
+        db.collection("notifications").where("emergencyId", "==", currentEmergency).limit(1).onSnapshot((n) => {
+          wfNotification = n.empty ? null : n.docs[0].data();
+          renderWorkflow();
+        });
+        db.collection("emergencies").doc(currentEmergency).onSnapshot((doc) => {
+          if (doc.exists) {
+            const em = doc.data() || {};
+            currentAssignment.patientLocation = em.patientLocation || currentAssignment.patientLocation;
+            render(currentAssignment, false);
+          }
+        });
+        db.collection("hospitalResponses").where("emergencyId", "==", currentEmergency).orderBy("respondedAt", "desc").limit(1).onSnapshot((resp) => {
+          if (!resp.empty && currentAssignment) {
+            const row = resp.docs[0].data() || {};
+            currentAssignment.hospitalInfo = currentAssignment.hospitalInfo || {};
+            currentAssignment.hospitalInfo.specialistName = row.specialistName || currentAssignment.hospitalInfo.specialistName;
+            currentAssignment.hospitalInfo.confirmedIcuBeds = row.icuBeds ?? currentAssignment.hospitalInfo.confirmedIcuBeds;
+            currentAssignment.hospitalInfo.confirmedErBeds = row.erBeds ?? currentAssignment.hospitalInfo.confirmedErBeds;
+            document.getElementById("statusCard").innerHTML = `<div>🏥 Hospital confirmed: ${row.specialistName || "Specialist"} ready</div>`;
+            render(currentAssignment, false);
+          }
+        });
         if (isNew) playAlert();
         render(currentAssignment, isNew);
       });

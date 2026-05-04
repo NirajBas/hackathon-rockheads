@@ -6,6 +6,8 @@
     <title>Hospital Specialist Console</title>
     <style>
       body { margin: 0; font-family: Arial, sans-serif; background: #0b0b0b; color: #fff; }
+      .workflow-sidebar { position: fixed; right: 0; top: 0; width: 300px; height: 100vh; background: #111; border-left: 1px solid #222; overflow-y: auto; padding: 20px; z-index: 100; }
+      .main-content { margin-right: 300px; }
       .wrap { max-width: 1000px; margin: 0 auto; padding: 16px; }
       .card { background: #151515; border: 1px solid #333; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
       .meta { color: #bbb; font-size: 13px; }
@@ -13,10 +15,15 @@
       .btn { background: #00c853; color: #011; border: 0; border-radius: 8px; padding: 10px 12px; font-weight: 700; cursor: pointer; width: 100%; }
       input { width: 100%; padding: 9px; border-radius: 7px; border: 1px solid #444; background: #0f0f0f; color: #fff; margin-top: 6px; margin-bottom: 10px; }
       .empty { color: #9a9a9a; padding: 12px; border: 1px dashed #333; border-radius: 8px; }
+      .wf-step { border: 1px solid #333; border-radius: 8px; padding: 8px; margin-bottom: 8px; background: #161616; }
+      .wf-step.done { border-color: #1f8f4a; background: #0f2417; }
+      .wf-step.active { border-color: #d1a700; animation: pulse 1.4s infinite; }
+      @keyframes pulse { 50% { border-color: #f7d43a; } }
+      @media (max-width: 900px) { .workflow-sidebar { width: 100%; height: 48px; overflow: hidden; bottom: 0; top: auto; } .workflow-sidebar.open { height: 45vh; } .main-content { margin-right: 0; margin-bottom: 48px; } }
     </style>
   </head>
   <body>
-    <div class="wrap">
+    <div class="main-content wrap">
       <div class="card">
         <h2 id="title">🏥 Loading hospital...</h2>
         <div class="meta" id="hospitalMeta"></div>
@@ -30,6 +37,12 @@
         <div id="confirmed"></div>
       </div>
     </div>
+    <aside class="workflow-sidebar" id="wfSidebar">
+      <h3>📊 Live Workflow</h3>
+      <div class="meta" id="wfEmergencyId">No active emergency</div>
+      <div class="meta" id="wfClock"></div>
+      <div id="wfSteps"></div>
+    </aside>
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
     <script>
@@ -49,6 +62,31 @@
 
       const requestsEl = document.getElementById("requests");
       const confirmedEl = document.getElementById("confirmed");
+      const wfClockEl = document.getElementById("wfClock");
+      const wfEmergencyIdEl = document.getElementById("wfEmergencyId");
+      const wfStepsEl = document.getElementById("wfSteps");
+      let wfEmergencyId = null;
+      let wfState = { emergency: null, requests: [], specialist: null, notification: null };
+      setInterval(() => { wfClockEl.textContent = new Date().toLocaleTimeString(); }, 1000);
+
+      function renderWorkflow() {
+        if (!wfEmergencyId || !wfState.emergency) {
+          wfEmergencyIdEl.textContent = "No active emergency";
+          wfStepsEl.innerHTML = '<div class="empty">No active emergency</div>';
+          return;
+        }
+        wfEmergencyIdEl.textContent = `Emergency: ${wfEmergencyId}`;
+        const emergency = wfState.emergency || {};
+        const steps = [
+          { done: !!emergency.id, title: "🚨 Emergency Triggered", detail: `${emergency.patientName || "Unknown"} • ${emergency.severity || "-"}` },
+          { done: !!emergency.urgencyScore, title: "🤖 AI Classified", detail: `${emergency.emergencyType || "-"} • ${emergency.urgencyScore || "-"}/10` },
+          { done: wfState.requests.length > 0, title: "📡 Hospitals Notified", detail: `${wfState.requests.length} hospitals checked` },
+          { done: !!wfState.specialist, title: "👨‍⚕️ Specialist Found", detail: wfState.specialist ? `${wfState.specialist.specialistName || "Doctor"} at ${wfState.specialist.hospitalName || "-"}` : "Pending..." },
+          { done: !!wfState.notification, title: "🏥 Hospital Assigned", detail: wfState.notification ? `${wfState.notification.hospitalName || "-"} • ${wfState.notification.hospitalId === HOSPITAL_ID ? "This hospital" : "Other hospital"}` : "Pending..." }
+        ];
+        const activeIndex = steps.findIndex((s) => !s.done);
+        wfStepsEl.innerHTML = steps.map((s, i) => `<div class="wf-step ${s.done ? "done" : i === activeIndex ? "active" : ""}"><div>${s.title}</div><div class="meta">${s.detail}</div></div>`).join("");
+      }
 
       function reqCard(r) {
         return `
@@ -82,6 +120,24 @@
       db.collection("hospitalRequests").where("hospitalId", "==", HOSPITAL_ID).where("status", "==", "pending").onSnapshot((snap) => {
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         requestsEl.innerHTML = list.length ? list.map(reqCard).join("") : '<div class="empty">No pending specialist requests.</div>';
+        if (list.length && !wfEmergencyId) wfEmergencyId = list[0].emergencyId;
+        if (wfEmergencyId) {
+          db.collection("hospitalRequests").where("emergencyId", "==", wfEmergencyId).onSnapshot((inner) => {
+            wfState.requests = inner.docs.map((d) => ({ id: d.id, ...d.data() }));
+            wfState.specialist = wfState.requests.find((x) => x.hasSpecialist);
+            renderWorkflow();
+          });
+          db.collection("emergencies").doc(wfEmergencyId).onSnapshot((doc) => {
+            wfState.emergency = doc.exists ? { id: doc.id, ...doc.data() } : null;
+            renderWorkflow();
+          });
+          db.collection("notifications").where("emergencyId", "==", wfEmergencyId).limit(1).onSnapshot((n) => {
+            wfState.notification = n.empty ? null : n.docs[0].data();
+            renderWorkflow();
+          });
+        } else {
+          renderWorkflow();
+        }
       });
 
       db.collection("notifications").where("hospitalId", "==", HOSPITAL_ID).onSnapshot((snap) => {
@@ -89,6 +145,7 @@
         confirmedEl.innerHTML = list.length
           ? list.map((n) => `<div class="card"><div><strong>Prepare for patient arrival</strong></div><div>${n.patientName || "Unknown"} (${n.patientAge ?? "-"}) • ${n.bloodGroup || "-"}</div><div>${n.emergencyType || "-"} ${n.severity || "-"} • Ambulance ${n.ambulanceId || "-"}</div><div>ETA: ${n.eta || "-"} • Specialist: ${n.specialistName || "Assigned"}</div><a class="meta" href="https://www.google.com/maps?q=${n.patientLocation?.lat || 0},${n.patientLocation?.lng || 0}" target="_blank" rel="noreferrer">Open patient location</a></div>`).join("")
           : '<div class="empty">No confirmed assignments yet.</div>';
+        if (!wfEmergencyId && list.length) wfEmergencyId = list[0].emergencyId;
       });
     </script>
   </body>
