@@ -2,6 +2,18 @@ const { v4: uuidv4 } = require("uuid");
 const db = require("../config/firebase");
 const logger = require("../utils/logger");
 
+const haversineDistance = (lat1, lng1, lat2, lng2) => {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
 const ensureDb = () => {
   if (!db) {
     throw new Error("Firestore is not initialized. Check Firebase environment variables.");
@@ -29,7 +41,7 @@ const buildSelectionReason = (hospital, emergencyType) => {
 /**
  * Ranks hospitals: specialty match (+50), ICU (+10 each), ER (+5 each), distance tier.
  */
-const selectBestHospital = async (severity, emergencyType) => {
+const selectBestHospital = async (severity, emergencyType,location) => {
   ensureDb();
   const snapshot = await db.collection("hospitals").get();
   const hospitals = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -51,7 +63,9 @@ const selectBestHospital = async (severity, emergencyType) => {
     const specialtyMatch = (hospital.specialties || []).includes(specialtyKey) ? 50 : 0;
     const icuPts = (hospital.icuBeds || 0) * 10;
     const erPts = (hospital.erBeds || 0) * 5;
-    const distPts = distancePoints(hospital.distance);
+    const realDistance = location ? haversineDistance(location.lat, location.lng, hospital.location.lat, hospital.location.lng)
+  : (hospital.distance || 999);
+  const distPts = distancePoints(realDistance);
     const score = specialtyMatch + icuPts + erPts + distPts;
     return { hospital, score };
   });
