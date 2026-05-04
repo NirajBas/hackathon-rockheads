@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Family Emergency Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0a0a;
+        --card: #111;
+        --border: #222;
+        --text: #e8e8e8;
+        --muted: #888;
+        --red: #ff3333;
+        --green: #00ff88;
+        --orange: #ff9900;
+        --blue108: #0088ff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "Inter", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        line-height: 1.5;
+      }
+      a {
+        color: var(--green);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .top-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--border);
+        background: var(--card);
+      }
+      .top-nav h1 {
+        margin: 0;
+        font-size: 1.15rem;
+        font-weight: 700;
+      }
+      .welcome {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin: 4px 0 0;
+      }
+      .btn-logout {
+        padding: 10px 16px;
+        border-radius: 10px;
+        border: 1px solid #553333;
+        background: #221111;
+        color: var(--red);
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      .btn-logout:hover {
+        background: #331818;
+      }
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px 16px 48px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+      .emergency-card {
+        border-color: #552222;
+        box-shadow: 0 0 20px rgba(255, 51, 51, 0.12);
+      }
+      .emergency-card h2 {
+        margin: 0 0 16px;
+        font-size: 1.15rem;
+        text-align: center;
+      }
+      .field {
+        margin-bottom: 14px;
+      }
+      .field label {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 11px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: #0d0d0d;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 0.95rem;
+      }
+      textarea {
+        min-height: 80px;
+        resize: vertical;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        outline: none;
+        border-color: #555;
+      }
+      .btn-emergency {
+        width: 100%;
+        margin-top: 8px;
+        padding: 16px;
+        font-size: 1.05rem;
+        font-weight: 700;
+        border: none;
+        border-radius: 12px;
+        background: linear-gradient(180deg, #ff4444, #cc0000);
+        color: #fff;
+        cursor: pointer;
+        font-family: inherit;
+        animation: pulseGlow 2s ease-in-out infinite;
+      }
+      .btn-emergency:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        animation: none;
+      }
+      .btn-emergency-sm {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+        margin-top: 10px;
+        width: 100%;
+        border: none;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #cc2222, #991111);
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+        animation: pulseGlow 2.5s ease-in-out infinite;
+      }
+      @keyframes pulseGlow {
+        0%,
+        100% {
+          box-shadow: 0 0 10px 2px rgba(255, 51, 51, 0.4);
+        }
+        50% {
+          box-shadow: 0 0 24px 6px rgba(255, 51, 51, 0.5);
+        }
+      }
+      .blood-ap {
+        color: #ff6b6b;
+      }
+      .blood-an {
+        color: #ff8787;
+      }
+      .blood-bp {
+        color: #74c0fc;
+      }
+      .blood-bn {
+        color: #a5d8ff;
+      }
+      .blood-op {
+        color: #69db7c;
+      }
+      .blood-on {
+        color: #b2f2bb;
+      }
+      .blood-abp {
+        color: #da77f2;
+      }
+      .blood-abn {
+        color: #e599f7;
+      }
+      .blood-unknown {
+        color: var(--muted);
+      }
+      .section-title {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0 0 14px;
+        color: var(--text);
+      }
+      .grid-members {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 14px;
+      }
+      .member-tile {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px;
+        background: #0d0d0d;
+      }
+      .rel-badge {
+        display: inline-block;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: #222;
+        color: var(--orange);
+        margin-bottom: 8px;
+      }
+      .member-tile .name {
+        font-weight: 700;
+        font-size: 1.05rem;
+        margin: 0 0 6px;
+      }
+      .meta {
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin: 2px 0;
+      }
+      .btn-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .btn {
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: #1a1a1a;
+        color: var(--text);
+        font-family: inherit;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+      .btn:hover {
+        background: #252525;
+      }
+      .response-panel {
+        margin-top: 16px;
+        padding: 16px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #0a0a0a;
+        font-size: 0.88rem;
+      }
+      .response-panel.hidden {
+        display: none;
+      }
+      .badge-108 {
+        display: inline-block;
+        background: rgba(0, 136, 255, 0.2);
+        color: var(--blue108);
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.72rem;
+        font-weight: 700;
+      }
+      .badge-govt {
+        color: var(--orange);
+        font-weight: 700;
+        font-size: 0.75rem;
+      }
+      .badge-private {
+        color: #c9b8ff;
+        font-weight: 600;
+        font-size: 0.75rem;
+      }
+      .err {
+        color: var(--red);
+        font-size: 0.875rem;
+        margin-top: 10px;
+      }
+      .history-item {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin-bottom: 10px;
+        background: #0d0d0d;
+        font-size: 0.85rem;
+      }
+      .history-item strong {
+        color: var(--text);
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .link-detail {
+        font-size: 0.9rem;
+      }
+      /* Modal */
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.72);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.28s ease, visibility 0.28s ease;
+      }
+      .modal-backdrop.open {
+        opacity: 1;
+        visibility: visible;
+      }
+      .modal {
+        width: 100%;
+        max-width: 440px;
+        max-height: 90vh;
+        overflow-y: auto;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 22px;
+        transform: translateY(16px) scale(0.97);
+        transition: transform 0.28s ease;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      }
+      .modal-backdrop.open .modal {
+        transform: translateY(0) scale(1);
+      }
+      .modal h3 {
+        margin: 0 0 16px;
+        font-size: 1.05rem;
+      }
+      .modal-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 18px;
+        flex-wrap: wrap;
+      }
+      .modal-actions .btn-primary {
+        background: #1f3d2f;
+        border-color: var(--green);
+        color: var(--green);
+      }
+      .spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid #444;
+        border-top-color: var(--red);
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        vertical-align: middle;
+        margin-right: 6px;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .hidden {
+        display: none !important;
+      }
+      .read-only-blood {
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top-nav">
+      <div>
+        <h1>🏠 Family Emergency Dashboard</h1>
+        <p class="welcome" id="welcomeLine">Welcome</p>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+        <a class="link-detail" href="user-dashboard.html">Detailed live view →</a>
+        <button type="button" class="btn-logout" id="btnLogout">Logout</button>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="card emergency-card" aria-labelledby="em-title">
+        <h2 id="em-title">🚨 EMERGENCY TRIGGER</h2>
+        <div class="field">
+          <label for="emMember">Who needs help?</label>
+          <select id="emMember"></select>
+        </div>
+        <div class="field">
+          <label for="emType">Emergency type</label>
+          <select id="emType">
+            <option>Car Accident</option>
+            <option>Heart Attack</option>
+            <option>Fall/Injury</option>
+            <option>Fire</option>
+            <option>Drowning</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="emDetails">Additional details (optional)</label>
+          <textarea id="emDetails" placeholder="Brief context for responders…"></textarea>
+        </div>
+        <div class="field">
+          <label>Blood group (auto)</label>
+          <p class="read-only-blood" id="emBloodDisplay">—</p>
+        </div>
+        <button type="button" class="btn-emergency" id="btnTriggerEmergency">🚨 TRIGGER EMERGENCY</button>
+        <p id="emError" class="err hidden" role="alert"></p>
+        <div id="emResponse" class="response-panel hidden" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <div class="toolbar">
+          <h2 class="section-title" style="margin: 0">Family members</h2>
+          <button type="button" class="btn" id="btnAddMemberOpen">+ Add new family member</button>
+        </div>
+        <div class="grid-members" id="membersGrid"></div>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Emergency history (last 5)</h2>
+        <div id="historyList"></div>
+        <p id="historyEmpty" class="meta" style="margin: 0">No emergencies recorded yet.</p>
+      </section>
+    </main>
+
+    <!-- Add member modal -->
+    <div class="modal-backdrop" id="modalAdd" role="dialog" aria-modal="true" aria-labelledby="addTitle">
+      <div class="modal">
+        <h3 id="addTitle">Add family member</h3>
+        <div class="field">
+          <label for="addRel">Relation</label>
+          <select id="addRel">
+            <option>Brother</option>
+            <option>Sister</option>
+            <option>Grandfather</option>
+            <option>Grandmother</option>
+            <option>Uncle</option>
+            <option>Aunt</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="addName">Full name</label>
+          <input id="addName" type="text" />
+        </div>
+        <div class="field">
+          <label for="addAge">Age</label>
+          <input id="addAge" type="number" min="1" max="120" />
+        </div>
+        <div class="field">
+          <label for="addBlood">Blood group</label>
+          <select id="addBlood"></select>
+        </div>
+        <div class="field">
+          <label for="addGmail">Gmail (optional)</label>
+          <input id="addGmail" type="email" />
+        </div>
+        <div class="field">
+          <label for="addReport">Medical report (optional)</label>
+          <input id="addReport" type="file" accept=".pdf,image/*" />
+        </div>
+        <p id="addError" class="err hidden"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="addCancel">Cancel</button>
+          <button type="button" class="btn btn-primary" id="addSave">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit member modal -->
+    <div class="modal-backdrop" id="modalEdit" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+      <div class="modal">
+        <h3 id="editTitle">Edit member</h3>
+        <input type="hidden" id="editId" />
+        <div class="field">
+          <label for="editRel">Relation</label>
+          <select id="editRel"></select>
+        </div>
+        <div class="field">
+          <label for="editName">Full name</label>
+          <input id="editName" type="text" />
+        </div>
+        <div class="field">
+          <label for="editAge">Age</label>
+          <input id="editAge" type="number" min="1" max="120" />
+        </div>
+        <div class="field">
+          <label for="editBlood">Blood group</label>
+          <select id="editBlood"></select>
+        </div>
+        <div class="field">
+          <label for="editGmail">Gmail</label>
+          <input id="editGmail" type="email" />
+        </div>
+        <div class="field hidden" id="editPasswordWrap">
+          <label for="editPassword">New password (family head only, leave blank to keep)</label>
+          <input id="editPassword" type="password" autocomplete="new-password" />
+        </div>
+        <div class="field hidden" id="editPhoneWrap">
+          <label for="editPhone">Phone</label>
+          <input id="editPhone" type="text" />
+        </div>
+        <div class="field">
+          <label for="editReport">Medical report (replace, optional)</label>
+          <input id="editReport" type="file" accept=".pdf,image/*" />
+        </div>
+        <p id="editError" class="err hidden"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="editCancel">Cancel</button>
+          <button type="button" class="btn btn-primary" id="editSave">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE = "http://localhost:3000";
+      const BLOOD = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
+
+      function bloodClass(bg) {
+        const m = {
+          "A+": "blood-ap",
+          "A-": "blood-an",
+          "B+": "blood-bp",
+          "B-": "blood-bn",
+          "O+": "blood-op",
+          "O-": "blood-on",
+          "AB+": "blood-abp",
+          "AB-": "blood-abn"
+        };
+        return m[bg] || "blood-unknown";
+      }
+
+      function loadFamily() {
+        let session, raw;
+        try {
+          session = localStorage.getItem("current_session");
+          raw = localStorage.getItem("family_data");
+        } catch {
+          window.location.href = "login.html";
+          return null;
+        }
+        if (!raw || !session) {
+          window.location.href = "login.html";
+          return null;
+        }
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          window.location.href = "login.html";
+          return null;
+        }
+        if (!data.familyId || data.familyId !== session) {
+          window.location.href = "login.html";
+          return null;
+        }
+        return data;
+      }
+
+      function saveFamily(data) {
+        localStorage.setItem("family_data", JSON.stringify(data));
+      }
+
+      function memberId() {
+        return "mem_" + Math.random().toString(36).slice(2, 11);
+      }
+
+      function fillSelect(sel, bloodOnly) {
+        if (bloodOnly) {
+          sel.innerHTML = BLOOD.map((b) => `<option value="${b}">${b}</option>`).join("");
+        }
+      }
+
+      ["addBlood", "editBlood"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) fillSelect(el, true);
+      });
+
+      const family = loadFamily();
+      if (!family) {
+        /* loadFamily redirected to login.html */
+      }
+      if (family) {
+      function esc(s) {
+        return String(s ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function getHead() {
+        return (family.members || []).find((m) => m.isHead) || family.members[0];
+      }
+
+      function renderWelcome() {
+        const h = getHead();
+        document.getElementById("welcomeLine").textContent =
+          "Welcome, " + (h && h.name ? h.name : "Your") + " Family";
+      }
+
+      function memberById(id) {
+        return (family.members || []).find((m) => m.id === id);
+      }
+
+      function renderMemberSelect() {
+        const sel = document.getElementById("emMember");
+        sel.innerHTML = (family.members || [])
+          .map(
+            (m) =>
+              `<option value="${esc(m.id)}">${esc(m.name)} (${esc(m.relation)})</option>`
+          )
+          .join("");
+        syncBloodFromMember();
+      }
+
+      function syncBloodFromMember() {
+        const id = document.getElementById("emMember").value;
+        const m = memberById(id);
+        const el = document.getElementById("emBloodDisplay");
+        if (!m) {
+          el.textContent = "—";
+          el.className = "read-only-blood";
+          return;
+        }
+        el.textContent = m.bloodGroup || "—";
+        el.className = "read-only-blood " + bloodClass(m.bloodGroup);
+      }
+
+      document.getElementById("emMember").addEventListener("change", syncBloodFromMember);
+
+      function ambulanceBadges(amb) {
+        const t = (amb && amb.type) || "";
+        if (t === "108") return '<span class="badge-108">108 / Govt emergency</span>';
+        if (t === "govt") return '<span class="badge-govt">Government ambulance</span>';
+        if (t === "private") return '<span class="badge-private">Private ambulance</span>';
+        return t ? `<span class="badge-private">${t}</span>` : "—";
+      }
+
+      function renderEmResponse(data) {
+        const amb = data.ambulance || {};
+        const hosp = data.hospital || {};
+        return `
+          <div><strong>Severity detected</strong>: ${data.severity || "—"} (urgency ${data.urgencyScore ?? "—"}/10)</div>
+          <div style="margin-top:10px"><strong>Ambulance assigned</strong>: ${amb.id || "—"} — ${ambulanceBadges(amb)} <span style="color:#888">(${amb.priority || ""})</span></div>
+          <div style="margin-top:10px"><strong>Hospital</strong>: ${hosp.name || "—"}</div>
+          <div style="margin-top:6px"><strong>ETA</strong>: ${hosp.eta || "—"}</div>
+          <div style="margin-top:10px"><strong>Selection reason</strong>: ${hosp.selectionReason || "—"}</div>
+          <div style="margin-top:10px;color:#888;font-size:0.8rem">Emergency ID: ${data.emergencyId || "—"}</div>
+        `;
+      }
+
+      function pushHistory(entry) {
+        let list = [];
+        try {
+          list = JSON.parse(localStorage.getItem("emergency_history") || "[]");
+        } catch {
+          list = [];
+        }
+        if (!Array.isArray(list)) list = [];
+        list.unshift(entry);
+        localStorage.setItem("emergency_history", JSON.stringify(list.slice(0, 5)));
+      }
+
+      function readHistory() {
+        try {
+          const list = JSON.parse(localStorage.getItem("emergency_history") || "[]");
+          return Array.isArray(list) ? list : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function renderHistory() {
+        const list = readHistory();
+        const box = document.getElementById("historyList");
+        const empty = document.getElementById("historyEmpty");
+        box.innerHTML = "";
+        if (!list.length) {
+          empty.classList.remove("hidden");
+          return;
+        }
+        empty.classList.add("hidden");
+        list.forEach((h) => {
+          const div = document.createElement("div");
+          div.className = "history-item";
+          div.innerHTML = `
+            <div><strong>${esc(h.atLabel || "—")}</strong></div>
+            <div>Who: ${esc(h.who || "—")} · Type: ${esc(h.emergencyType || "—")}</div>
+            <div>Ambulance: ${esc(h.ambulanceType || "—")} · Hospital: ${esc(h.hospitalName || "—")}</div>
+            <div>Status: ${esc(h.status || "—")}</div>
+          `;
+          box.appendChild(div);
+        });
+      }
+
+      function renderMembersGrid() {
+        const grid = document.getElementById("membersGrid");
+        grid.innerHTML = "";
+        (family.members || []).forEach((m) => {
+          const tile = document.createElement("div");
+          tile.className = "member-tile";
+          const bgClass = bloodClass(m.bloodGroup);
+          const report = m.medicalReport ? "Uploaded (" + m.medicalReport + ")" : "Not uploaded";
+          tile.innerHTML = `
+            <span class="rel-badge">${esc(m.relation)}</span>
+            <p class="name">${esc(m.name)}</p>
+            <p class="meta">Age: ${esc(m.age)}</p>
+            <p class="meta">Blood: <span class="${bgClass}">${esc(m.bloodGroup)}</span></p>
+            <p class="meta">Gmail: ${esc(m.gmail || "—")}</p>
+            <p class="meta">Medical report: ${esc(report)}</p>
+            <div class="btn-row">
+              <button type="button" class="btn" data-edit="${esc(m.id)}">Edit</button>
+            </div>
+            <button type="button" class="btn-emergency-sm" data-trigger="${esc(m.id)}">Trigger emergency for ${esc(m.name)}</button>
+          `;
+          grid.appendChild(tile);
+        });
+        grid.querySelectorAll("[data-edit]").forEach((btn) => {
+          btn.addEventListener("click", () => openEdit(btn.getAttribute("data-edit")));
+        });
+        grid.querySelectorAll("[data-trigger]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            document.getElementById("emMember").value = btn.getAttribute("data-trigger");
+            syncBloodFromMember();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          });
+        });
+      }
+
+      document.getElementById("btnTriggerEmergency").addEventListener("click", async () => {
+        const err = document.getElementById("emError");
+        const panel = document.getElementById("emResponse");
+        err.classList.add("hidden");
+        panel.classList.add("hidden");
+        const mid = document.getElementById("emMember").value;
+        const m = memberById(mid);
+        if (!m) return;
+        const type = document.getElementById("emType").value;
+        const details = document.getElementById("emDetails").value.trim();
+        const trigger = details ? `${type} — ${details}` : type;
+        const btn = document.getElementById("btnTriggerEmergency");
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>Dispatching…';
+        try {
+          const res = await fetch(`${API_BASE}/emergency/create`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: family.familyId,
+              trigger,
+              bloodGroup: m.bloodGroup,
+              patientName: m.name,
+              patientAge: m.age
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+          panel.innerHTML = renderEmResponse(data);
+          panel.classList.remove("hidden");
+          const amb = data.ambulance || {};
+          pushHistory({
+            at: new Date().toISOString(),
+            atLabel: new Date().toLocaleString(),
+            who: m.name,
+            emergencyType: type,
+            ambulanceType: amb.type === "108" ? "108 / Govt" : amb.type || "—",
+            hospitalName: (data.hospital && data.hospital.name) || "—",
+            status: data.status || "dispatched"
+          });
+          renderHistory();
+        } catch (e) {
+          err.textContent = e.message || "Something went wrong.";
+          err.classList.remove("hidden");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "🚨 TRIGGER EMERGENCY";
+        }
+      });
+
+      /* Modals */
+      const modalAdd = document.getElementById("modalAdd");
+      const modalEdit = document.getElementById("modalEdit");
+
+      function openModal(el) {
+        el.classList.add("open");
+      }
+      function closeModal(el) {
+        el.classList.remove("open");
+      }
+
+      document.getElementById("btnAddMemberOpen").addEventListener("click", () => {
+        document.getElementById("addName").value = "";
+        document.getElementById("addAge").value = "";
+        document.getElementById("addGmail").value = "";
+        document.getElementById("addReport").value = "";
+        document.getElementById("addError").classList.add("hidden");
+        openModal(modalAdd);
+      });
+      document.getElementById("addCancel").addEventListener("click", () => closeModal(modalAdd));
+      modalAdd.addEventListener("click", (e) => {
+        if (e.target === modalAdd) closeModal(modalAdd);
+      });
+
+      document.getElementById("addSave").addEventListener("click", () => {
+        const err = document.getElementById("addError");
+        err.classList.add("hidden");
+        const name = document.getElementById("addName").value.trim();
+        const age = document.getElementById("addAge").value;
+        if (!name || !age) {
+          err.textContent = "Name and age are required.";
+          err.classList.remove("hidden");
+          return;
+        }
+        const f = document.getElementById("addReport").files[0];
+        family.members = family.members || [];
+        family.members.push({
+          id: memberId(),
+          relation: document.getElementById("addRel").value,
+          name,
+          age: Number(age),
+          bloodGroup: document.getElementById("addBlood").value,
+          gmail: document.getElementById("addGmail").value.trim().toLowerCase() || null,
+          medicalReport: f ? f.name : null,
+          isHead: false
+        });
+        saveFamily(family);
+        closeModal(modalAdd);
+        renderMembersGrid();
+        renderMemberSelect();
+      });
+
+      const REL_OPTIONS = [
+        "Father",
+        "Mother",
+        "Yourself",
+        "Brother",
+        "Sister",
+        "Grandfather",
+        "Grandmother",
+        "Uncle",
+        "Aunt",
+        "Other"
+      ];
+
+      function openEdit(id) {
+        const m = memberById(id);
+        if (!m) return;
+        document.getElementById("editId").value = id;
+        const relSel = document.getElementById("editRel");
+        relSel.innerHTML = REL_OPTIONS.map((r) => `<option value="${r}">${r}</option>`).join("");
+        relSel.value = REL_OPTIONS.includes(m.relation) ? m.relation : "Other";
+        document.getElementById("editName").value = m.name;
+        document.getElementById("editAge").value = m.age;
+        document.getElementById("editBlood").innerHTML = BLOOD.map((b) => `<option value="${b}">${b}</option>`).join("");
+        document.getElementById("editBlood").value = m.bloodGroup;
+        document.getElementById("editGmail").value = m.gmail || "";
+        document.getElementById("editReport").value = "";
+        document.getElementById("editPassword").value = "";
+        const isHead = !!m.isHead;
+        document.getElementById("editPasswordWrap").classList.toggle("hidden", !isHead);
+        document.getElementById("editPhoneWrap").classList.toggle("hidden", !isHead);
+        if (isHead) document.getElementById("editPhone").value = m.phone || "";
+        document.getElementById("editError").classList.add("hidden");
+        openModal(modalEdit);
+      }
+
+      document.getElementById("editCancel").addEventListener("click", () => closeModal(modalEdit));
+      modalEdit.addEventListener("click", (e) => {
+        if (e.target === modalEdit) closeModal(modalEdit);
+      });
+
+      document.getElementById("editSave").addEventListener("click", () => {
+        const err = document.getElementById("editError");
+        err.classList.add("hidden");
+        const id = document.getElementById("editId").value;
+        const m = memberById(id);
+        if (!m) return;
+        const name = document.getElementById("editName").value.trim();
+        const age = document.getElementById("editAge").value;
+        if (!name || !age) {
+          err.textContent = "Name and age are required.";
+          err.classList.remove("hidden");
+          return;
+        }
+        m.relation = document.getElementById("editRel").value;
+        m.name = name;
+        m.age = Number(age);
+        m.bloodGroup = document.getElementById("editBlood").value;
+        m.gmail = document.getElementById("editGmail").value.trim().toLowerCase() || null;
+        const nf = document.getElementById("editReport").files[0];
+        if (nf) m.medicalReport = nf.name;
+        if (m.isHead) {
+          const np = document.getElementById("editPassword").value;
+          if (np) m.password = np;
+          m.phone = document.getElementById("editPhone").value.trim() || null;
+        }
+        saveFamily(family);
+        closeModal(modalEdit);
+        renderMembersGrid();
+        renderMemberSelect();
+        renderWelcome();
+      });
+
+      document.getElementById("btnLogout").addEventListener("click", () => {
+        try {
+          localStorage.removeItem("current_session");
+        } catch (_) {}
+        window.location.href = "login.html";
+      });
+
+      renderWelcome();
+      renderMemberSelect();
+      renderMembersGrid();
+      renderHistory();
+      }
+    </script>
+  </body>
+</html>

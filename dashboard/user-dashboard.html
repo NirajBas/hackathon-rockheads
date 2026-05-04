@@ -224,9 +224,26 @@
           font-size: 1rem;
         }
       }
+      .family-nav {
+        padding: 12px 24px;
+        background: #0d0d0d;
+        border-bottom: 1px solid var(--border);
+      }
+      .family-nav a {
+        color: var(--green);
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+      .family-nav a:hover {
+        text-decoration: underline;
+      }
     </style>
   </head>
   <body>
+    <nav class="family-nav" aria-label="Family dashboard">
+      <a href="family-dashboard.html">← Back to Family Dashboard</a>
+    </nav>
     <!-- Header: branding + live system indicator -->
     <header>
       <h1>🚨 Emergency Response System</h1>
