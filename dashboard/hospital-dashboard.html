@@ -24,6 +24,7 @@
   <div class="banner">🏥 Incoming Emergency — Hospital Console</div>
   <div class="wrap">
     <p class="small">Hospital: <strong id="hospitalNameLabel"></strong> (ID: <strong id="hospitalIdLabel"></strong>)</p>
+    <p class="small" id="hospitalMetaLabel">Specialty: — | ICU Beds: — | ER Beds: —</p>
     <section class="card"><h3 style="margin:0 0 10px">Live incoming alerts</h3><div id="cards" class="cards"><div class="empty">Waiting for emergency notifications…</div></div></section>
     <section class="card">
       <h3 style="margin:0 0 10px">Hospital response</h3>
@@ -44,13 +45,9 @@
     const firebaseConfig = { apiKey: "AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50", authDomain: "emergency-response-8701b.firebaseapp.com", projectId: "emergency-response-8701b", storageBucket: "emergency-response-8701b.firebasestorage.app", messagingSenderId: "558477100061", appId: "1:558477100061:web:074e110297b131b86172f4" };
     const params = new URLSearchParams(window.location.search);
     const HOSPITAL_ID = params.get("id") || "hosp_001";
-    const HOSPITAL_NAMES = {
-      hosp_001: "City Trauma Center",
-      hosp_002: "Metro Emergency Hospital"
-    };
     const API_BASE = "http://localhost:3000";
     document.getElementById("hospitalIdLabel").textContent = HOSPITAL_ID;
-    document.getElementById("hospitalNameLabel").textContent = HOSPITAL_NAMES[HOSPITAL_ID] || "Hospital Console";
+    document.getElementById("hospitalNameLabel").textContent = "Loading...";
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const cardsEl = document.getElementById("cards");
@@ -61,6 +58,29 @@
     const btnSubmit = document.getElementById("btnSubmitResponse");
     const submittedEmergencyIds = new Set();
     let latestForForm = null;
+    console.log("[Hospital Dashboard] Loading hospital:", HOSPITAL_ID);
+
+    db.collection("hospitals")
+      .doc(HOSPITAL_ID)
+      .get()
+      .then((doc) => {
+        if (!doc.exists) {
+          document.getElementById("hospitalNameLabel").textContent = "Unknown Hospital";
+          document.getElementById("hospitalMetaLabel").textContent = "Specialty: — | ICU Beds: — | ER Beds: —";
+          return;
+        }
+        const data = doc.data() || {};
+        const specialties = Array.isArray(data.specialties) ? data.specialties.join(", ") : "General";
+        document.getElementById("hospitalNameLabel").textContent = data.name || HOSPITAL_ID;
+        document.getElementById("hospitalMetaLabel").textContent = `Specialty: ${specialties} | ICU Beds: ${
+          data.icuBeds ?? "—"
+        } | ER Beds: ${data.erBeds ?? "—"}`;
+        console.log("[Hospital Dashboard] Loaded hospital details:", { id: HOSPITAL_ID, ...data });
+      })
+      .catch((error) => {
+        console.error("[Hospital Dashboard] Failed to load hospital details:", error);
+        document.getElementById("hospitalNameLabel").textContent = HOSPITAL_ID;
+      });
 
     const fmt = (ts) => {
       if (!ts) return "—";

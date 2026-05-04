@@ -41,14 +41,21 @@
       // Firebase config placeholder
       const firebaseConfig={apiKey:"AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50",authDomain:"emergency-response-8701b.firebaseapp.com",projectId:"emergency-response-8701b",storageBucket:"emergency-response-8701b.firebasestorage.app",messagingSenderId:"558477100061",appId:"1:558477100061:web:074e110297b131b86172f4"};
       firebase.initializeApp(firebaseConfig); const db=firebase.firestore();
+      const params=new URLSearchParams(window.location.search);
+      const FILTER_EMERGENCY_ID=params.get("id");
       const timelineEl=document.getElementById("timeline"); let emergencies=[], notifications=[], assignments=[], responses=[];
+      console.log("[Workflow Dashboard] Filter emergency:", FILTER_EMERGENCY_ID||"latest");
       setInterval(()=>document.getElementById("clock").textContent=new Date().toLocaleString(),1000);
       const fmt=(t)=>t?new Date(t).toLocaleString():"—";
       function card(title, body, cls){ return `<section class="card step ${cls}"><h3 style="margin:0 0 6px">${title}</h3><div>${body}</div></section>`; }
       function statusCls(done,active){ return done?"done":active?"active":""; }
       function render(){
         if(!emergencies.length){timelineEl.innerHTML='<section class="card"><div class="meta">Waiting for emergency stream…</div></section>'; return;}
-        const e=emergencies[0]; const n=notifications.find(x=>x.emergencyId===e.id)||{}; const a=assignments.find(x=>x.emergencyId===e.id)||{}; const r=responses.find(x=>x.emergencyId===e.id)||{}; const amb=a.ambulanceInfo||{};
+        const currentEmergency = FILTER_EMERGENCY_ID
+          ? emergencies.find((item)=>item.id===FILTER_EMERGENCY_ID)
+          : emergencies[0];
+        if(!currentEmergency){timelineEl.innerHTML='<section class="card"><div class="meta">No workflow found for selected emergency.</div></section>'; return;}
+        const e=currentEmergency; const n=notifications.find(x=>x.emergencyId===e.id)||{}; const a=assignments.find(x=>x.emergencyId===e.id)||{}; const r=responses.find(x=>x.emergencyId===e.id)||{}; const amb=a.ambulanceInfo||{};
         const blocks=[
           card("Step 1 - Triggered",`Emergency: ${e.id||"—"} · Patient: ${e.patientName||e.userId||"Unknown"} · Severity: ${e.severity||"—"} · Timestamp: ${fmt(e.createdAt)}`,statusCls(true,false)),
           card("Step 2 — AI Classification",`Severity: ${e.severity||"—"} · Type: ${e.emergencyType||"—"} · Urgency: ${e.urgencyScore??"—"}`,statusCls(!!e.urgencyScore,!a.ambulanceId)),
@@ -71,10 +78,20 @@
         const emType={}; emergencies.forEach(e=>{const k=e.emergencyType||"unknown"; emType[k]=(emType[k]||0)+1;});
         const common=Object.entries(emType).sort((a,b)=>b[1]-a[1])[0]?.[0]||"—"; document.getElementById("sCommon").textContent=common;
       }
-      db.collection("emergencies").orderBy("createdAt","desc").onSnapshot(s=>{emergencies=s.docs.map(d=>({id:d.id,...d.data()})); render();});
-      db.collection("notifications").onSnapshot(s=>{notifications=s.docs.map(d=>({id:d.id,...d.data()})); render();});
-      db.collection("ambulanceAssignments").orderBy("assignedAt","desc").onSnapshot(s=>{assignments=s.docs.map(d=>({id:d.id,...d.data()})); render();});
-      db.collection("hospitalResponses").orderBy("respondedAt","desc").onSnapshot(s=>{responses=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+      if(FILTER_EMERGENCY_ID){
+        db.collection("emergencies").doc(FILTER_EMERGENCY_ID).onSnapshot((doc)=>{
+          emergencies=doc.exists?[{id:doc.id,...doc.data()}]:[];
+          render();
+        });
+        db.collection("notifications").where("emergencyId","==",FILTER_EMERGENCY_ID).onSnapshot(s=>{notifications=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+        db.collection("ambulanceAssignments").where("emergencyId","==",FILTER_EMERGENCY_ID).onSnapshot(s=>{assignments=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+        db.collection("hospitalResponses").where("emergencyId","==",FILTER_EMERGENCY_ID).onSnapshot(s=>{responses=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+      }else{
+        db.collection("emergencies").orderBy("createdAt","desc").onSnapshot(s=>{emergencies=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+        db.collection("notifications").onSnapshot(s=>{notifications=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+        db.collection("ambulanceAssignments").orderBy("assignedAt","desc").onSnapshot(s=>{assignments=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+        db.collection("hospitalResponses").orderBy("respondedAt","desc").onSnapshot(s=>{responses=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+      }
     </script>
   </body>
 </html>

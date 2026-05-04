@@ -800,13 +800,26 @@
       function renderEmResponse(data) {
         const amb = data.ambulance || {};
         const hosp = data.hospital || {};
+        const hospitalUrl = hosp.id ? `http://localhost:3000/hospital?id=${encodeURIComponent(hosp.id)}` : "http://localhost:3000/hospital";
+        const ambulanceUrl = amb.id
+          ? `http://localhost:3000/ambulance?id=${encodeURIComponent(amb.id)}`
+          : "http://localhost:3000/ambulance";
+        const workflowUrl = data.emergencyId
+          ? `http://localhost:3000/workflow?id=${encodeURIComponent(data.emergencyId)}`
+          : "http://localhost:3000/workflow";
         return `
-          <div><strong>Severity detected</strong>: ${data.severity || "—"} (urgency ${data.urgencyScore ?? "—"}/10)</div>
+          <div><strong>✅ Emergency Dispatched!</strong></div>
+          <div style="margin-top:10px"><strong>Severity detected</strong>: ${data.severity || "—"} (urgency ${data.urgencyScore ?? "—"}/10)</div>
           <div style="margin-top:10px"><strong>Ambulance assigned</strong>: ${amb.id || "—"} — ${ambulanceBadges(amb)} <span style="color:#888">(${amb.priority || ""})</span></div>
           <div style="margin-top:10px"><strong>Hospital</strong>: ${hosp.name || "—"}</div>
           <div style="margin-top:6px"><strong>ETA</strong>: ${hosp.eta || "—"}</div>
           <div style="margin-top:10px"><strong>Selection reason</strong>: ${hosp.selectionReason || "—"}</div>
           <div style="margin-top:10px;color:#888;font-size:0.8rem">Emergency ID: ${data.emergencyId || "—"}</div>
+          <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+            <a class="btn" href="${hospitalUrl}" target="_blank" rel="noreferrer">🏥 Open Hospital Dashboard</a>
+            <a class="btn" href="${ambulanceUrl}" target="_blank" rel="noreferrer">🚑 Open Ambulance Dashboard</a>
+            <a class="btn" href="${workflowUrl}" target="_blank" rel="noreferrer">📊 Open Workflow Monitor</a>
+          </div>
         `;
       }
 

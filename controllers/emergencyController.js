@@ -163,6 +163,7 @@ const createEmergency = async (req, res) => {
         estimatedArrival: ambulance.estimatedArrival || "unknown"
       },
       hospital: {
+        id: hospital.id,
         name: hospital.name,
         eta,
         icuBeds: hospital.icuBeds,

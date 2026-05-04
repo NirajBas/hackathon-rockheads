@@ -46,6 +46,20 @@
       firebase.initializeApp(firebaseConfig); const db=firebase.firestore();
       const AMBULANCE_ID=new URLSearchParams(location.search).get("id")||"amb_108_001";
       document.getElementById("ambMeta").textContent=`Ambulance ID: ${AMBULANCE_ID}`;
+      console.log("[Ambulance Dashboard] Loading ambulance:", AMBULANCE_ID);
+      db.collection("ambulances")
+        .doc(AMBULANCE_ID)
+        .get()
+        .then((doc)=>{
+          if(!doc.exists){
+            document.getElementById("ambMeta").textContent=`Ambulance ${AMBULANCE_ID} Dashboard`;
+            return;
+          }
+          const data=doc.data()||{};
+          document.getElementById("ambMeta").textContent=`Ambulance ${AMBULANCE_ID} - ${data.type||"unknown"} Dashboard`;
+          console.log("[Ambulance Dashboard] Loaded ambulance details:", { id: AMBULANCE_ID, ...data });
+        })
+        .catch((error)=>console.error("[Ambulance Dashboard] Failed to load ambulance details:", error));
       let available=true, currentAssignment=null;
       const fmt=(t)=>t?new Date(t).toLocaleString():"—";
       const sev=(s)=>s==="high"?"sev-high":s==="medium"?"sev-medium":"sev-low";
