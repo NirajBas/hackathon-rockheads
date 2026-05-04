@@ -1,553 +1,62 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hospital Emergency Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <style>
-      :root {
-        --bg: #0a0a0a;
-        --card: #111;
-        --border: #222;
-        --text: #e8e8e8;
-        --muted: #888;
-        --red: #ff3333;
-        --green: #00ff88;
-        --orange: #ff9900;
-        --blue108: #0088ff;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        font-family: "Inter", system-ui, sans-serif;
-        background: var(--bg);
-        color: var(--text);
-        min-height: 100vh;
-      }
-      .banner {
-        background: linear-gradient(90deg, #5c0000, var(--red));
-        color: #fff;
-        padding: 16px;
-        text-align: center;
-        font-weight: 700;
-        font-size: 1.1rem;
-        letter-spacing: 0.04em;
-      }
-      .container {
-        max-width: 960px;
-        margin: 0 auto;
-        padding: 20px 16px 40px;
-      }
-      h2 {
-        font-size: 1rem;
-        margin: 0 0 14px;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-      }
-      .section {
-        margin-bottom: 28px;
-      }
-      .cards {
-        display: grid;
-        gap: 14px;
-      }
-      .card {
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 16px;
-        background: var(--card);
-        animation: slideIn 0.35s ease;
-      }
-      @keyframes slideIn {
-        from {
-          opacity: 0;
-          transform: translateY(8px);
-        }
-        to {
-          opacity: 1;
-          transform: none;
-        }
-      }
-      .card.high {
-        border-color: var(--red);
-        box-shadow: 0 0 20px rgba(255, 51, 51, 0.25);
-      }
-      .card.medium {
-        border-color: var(--orange);
-      }
-      .card.low {
-        border-color: var(--green);
-      }
-      .line {
-        margin: 6px 0;
-        font-size: 0.95rem;
-      }
-      .pill {
-        display: inline-block;
-        border-radius: 6px;
-        padding: 3px 10px;
-        font-size: 0.72rem;
-        font-weight: 700;
-      }
-      .pill.high {
-        background: rgba(255, 51, 51, 0.2);
-        color: var(--red);
-      }
-      .pill.medium {
-        background: rgba(255, 153, 0, 0.2);
-        color: var(--orange);
-      }
-      .pill.low {
-        background: rgba(0, 255, 136, 0.15);
-        color: var(--green);
-      }
-      .pill-108 {
-        background: rgba(0, 136, 255, 0.2);
-        color: var(--blue108);
-        border: 1px solid var(--blue108);
-        margin-left: 6px;
-      }
-      .pill-govt {
-        background: #2a2a2a;
-        color: #ccc;
-      }
-      .pill-private {
-        background: #2a2a2a;
-        color: #aaa;
-      }
-      .empty {
-        color: var(--muted);
-        padding: 20px;
-        text-align: center;
-        border: 1px dashed var(--border);
-        border-radius: 12px;
-      }
-      /* --- Response form --- */
-      .form-card label {
-        display: block;
-        font-size: 0.75rem;
-        color: var(--muted);
-        margin-bottom: 4px;
-      }
-      .form-card input,
-      .form-card select {
-        width: 100%;
-        padding: 10px 12px;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        background: #0d0d0d;
-        color: var(--text);
-        font-family: inherit;
-        margin-bottom: 12px;
-      }
-      .radio-row {
-        display: flex;
-        gap: 16px;
-        flex-wrap: wrap;
-        margin-bottom: 14px;
-      }
-      .radio-row label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-        color: var(--text);
-      }
-      .btn-submit {
-        width: 100%;
-        padding: 14px;
-        font-weight: 700;
-        border: none;
-        border-radius: 10px;
-        background: var(--red);
-        color: #fff;
-        cursor: pointer;
-        font-size: 1rem;
-      }
-      .btn-submit:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-      .success-msg {
-        color: var(--green);
-        font-weight: 600;
-        margin-top: 12px;
-      }
-      .err-msg {
-        color: var(--red);
-        margin-top: 8px;
-        font-size: 0.9rem;
-      }
-      /* --- History --- */
-      .history-card {
-        border-left: 3px solid var(--red);
-        padding: 12px 14px;
-        background: var(--card);
-        border-radius: 0 10px 10px 0;
-        margin-bottom: 10px;
-        border: 1px solid var(--border);
-        border-left-width: 3px;
-      }
-      .history-card.accepted {
-        border-left-color: var(--green);
-      }
-      .history-card.rejected {
-        border-left-color: var(--muted);
-      }
-      @keyframes flash {
-        0%,
-        100% {
-          box-shadow: 0 0 0 rgba(255, 51, 51, 0.1);
-        }
-        50% {
-          box-shadow: 0 0 18px rgba(255, 51, 51, 0.4);
-        }
-      }
-      .card.high {
-        animation: flash 2s ease infinite;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="banner">🏥 INCOMING EMERGENCY — Hospital Console</div>
-
-    <div class="container">
-      <!-- Hospital ID hint for demo -->
-      <p style="color: var(--muted); font-size: 0.85rem; margin-top: 0">
-        Demo hospital ID: <strong id="hospitalIdLabel" style="color: var(--text)"></strong>
-      </p>
-
-      <!-- Live alerts from Firestore `notifications` -->
-      <section class="section" aria-labelledby="alerts-title">
-        <h2 id="alerts-title">Live incoming alerts</h2>
-        <div id="cards" class="cards">
-          <div class="empty">Waiting for emergency notifications…</div>
-        </div>
-      </section>
-
-      <!-- Response form: POST /hospitals/:id/update-availability -->
-      <section class="section" aria-labelledby="form-title">
-        <h2 id="form-title">Hospital response</h2>
-        <div class="card form-card" id="responseFormCard">
-          <form id="responseForm">
-            <div>
-              <label for="fEmergencyId">Emergency ID</label>
-              <input id="fEmergencyId" type="text" readonly />
-            </div>
-            <div>
-              <label for="fHospitalId">Hospital ID</label>
-              <input id="fHospitalId" type="text" readonly />
-            </div>
-            <div>
-              <label for="fIcu">Available ICU beds</label>
-              <input id="fIcu" type="number" min="0" value="3" required />
-            </div>
-            <div>
-              <label for="fEr">Available ER beds</label>
-              <input id="fEr" type="number" min="0" value="2" required />
-            </div>
-            <div>
-              <label for="fSpecialist">Specialist on duty</label>
-              <input id="fSpecialist" type="text" placeholder="Dr. Sharma" required />
-            </div>
-            <div>
-              <label for="fSpecialty">Specialty</label>
-              <select id="fSpecialty">
-                <option value="trauma">trauma</option>
-                <option value="cardiac">cardiac</option>
-                <option value="accident">accident</option>
-              </select>
-            </div>
-            <div>
-              <span style="font-size: 0.75rem; color: var(--muted)">Status</span>
-              <div class="radio-row">
-                <label><input type="radio" name="fStatus" value="accepted" checked /> Accept</label>
-                <label><input type="radio" name="fStatus" value="rejected" /> Reject</label>
-              </div>
-            </div>
-            <button type="submit" class="btn-submit" id="btnSubmitResponse">
-              📋 Submit Response
-            </button>
-          </form>
-          <p id="formSuccess" class="success-msg hidden"></p>
-          <p id="formError" class="err-msg hidden"></p>
-        </div>
-      </section>
-
-      <!-- Past responses from `hospitalResponses` -->
-      <section class="section" aria-labelledby="hist-title">
-        <h2 id="hist-title">Response history</h2>
-        <div id="historyList">
-          <div class="empty">No responses yet.</div>
-        </div>
-      </section>
-    </div>
-
-    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-    <script>
-      /** Same Firebase Web config as user dashboard — replace placeholders */
-      const firebaseConfig = {
-        apiKey: "AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50",
-        authDomain: "emergency-response-8701b.firebaseapp.com",
-        projectId: "emergency-response-8701b",
-        storageBucket: "emergency-response-8701b.firebasestorage.app",
-        messagingSenderId: "558477100061",
-        appId: "1:558477100061:web:074e110297b131b86172f4"
-      };
-
-      /** Must match the hospital receiving alerts (seed: hosp_001) */
-      const HOSPITAL_ID = "hosp_001";
-      const API_BASE = "http://localhost:3000";
-
-      document.getElementById("hospitalIdLabel").textContent = HOSPITAL_ID;
-
-      firebase.initializeApp(firebaseConfig);
-      const db = firebase.firestore();
-
-      const cardsEl = document.getElementById("cards");
-      const historyList = document.getElementById("historyList");
-      const form = document.getElementById("responseForm");
-      const btnSubmit = document.getElementById("btnSubmitResponse");
-      const formSuccess = document.getElementById("formSuccess");
-      const formError = document.getElementById("formError");
-
-      let audioContext;
-      const heardAlertIds = new Set();
-      /** Emergency IDs we already submitted a response for (avoid double submit) */
-      const submittedEmergencyIds = new Set();
-
-      function playAlert(severity) {
-        try {
-          if (!audioContext) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          }
-          const osc = audioContext.createOscillator();
-          const gain = audioContext.createGain();
-          osc.type = "sine";
-          osc.frequency.value = severity === "high" ? 880 : severity === "medium" ? 660 : 520;
-          gain.gain.value = 0.08;
-          osc.connect(gain);
-          gain.connect(audioContext.destination);
-          osc.start();
-          osc.stop(audioContext.currentTime + 0.25);
-        } catch (_) {}
-      }
-
-      function severityClass(s) {
-        return s === "high" ? "high" : s === "medium" ? "medium" : "low";
-      }
-
-      function ambTypePill(type) {
-        if (type === "108") return '<span class="pill pill-108">108</span>';
-        if (type === "govt") return '<span class="pill pill-govt">Govt</span>';
-        return '<span class="pill pill-private">Private</span>';
-      }
-
-      function formatTs(ts) {
-        if (!ts) return "—";
-        const d = ts.toDate ? ts.toDate() : new Date(ts);
-        return isNaN(d.getTime()) ? "—" : d.toLocaleString();
-      }
-
-      /** Pick most recent notification for this hospital */
-      function pickLatestForHospital(docs) {
-        const mine = docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((n) => n.hospitalId === HOSPITAL_ID);
-        mine.sort((a, b) => {
-          const ta = new Date(a.createdAt || 0).getTime();
-          const tb = new Date(b.createdAt || 0).getTime();
-          return tb - ta;
-        });
-        return mine[0] || null;
-      }
-
-      function syncFormToAlert(latest) {
-        document.getElementById("fEmergencyId").value = latest?.emergencyId || "";
-        document.getElementById("fHospitalId").value = HOSPITAL_ID;
-
-        const emId = latest?.emergencyId;
-        const needsResponse = emId && !submittedEmergencyIds.has(emId);
-
-        btnSubmit.disabled = !needsResponse;
-        form.querySelectorAll("input, select").forEach((el) => {
-          if (el.id === "fEmergencyId" || el.id === "fHospitalId") return;
-          el.disabled = !needsResponse;
-        });
-
-        if (!needsResponse && emId) {
-          formSuccess.textContent = "Response already submitted for this emergency.";
-          formSuccess.classList.remove("hidden");
-        } else {
-          formSuccess.classList.add("hidden");
-        }
-      }
-
-      db.collection("notifications")
-        .orderBy("createdAt", "desc")
-        .onSnapshot(
-          (snapshot) => {
-            const docs = snapshot.docs;
-            const forUs = docs.filter((d) => d.data().hospitalId === HOSPITAL_ID);
-
-            if (!forUs.length) {
-              cardsEl.innerHTML = '<div class="empty">No alerts for this hospital yet.</div>';
-              syncFormToAlert(null);
-              return;
-            }
-
-            cardsEl.innerHTML = "";
-            forUs.forEach((doc) => {
-              const data = doc.data();
-              const sev = severityClass(data.severity);
-              const created = data.createdAt ? new Date(data.createdAt).toLocaleString() : "N/A";
-              const amb = data.ambulance || {};
-              const typePill = ambTypePill(amb.type);
-              const ambLine = `
-                <div class="line"><strong>Ambulance:</strong> ${amb.id || "—"} (${amb.type || "—"}) ${typePill}
-                  ${amb.type === "108" ? '<span class="pill pill-108">108 Government</span>' : ""}
-                </div>
-                <div class="line"><strong>Dispatch priority:</strong> ${amb.priority || "—"}</div>
-              `;
-
-              if (!heardAlertIds.has(doc.id)) {
-                heardAlertIds.add(doc.id);
-                playAlert(data.severity || "medium");
-              }
-
-              const el = document.createElement("div");
-              el.className = `card ${sev}`;
-              el.innerHTML = `
-                <div class="line"><strong>Emergency</strong> ${data.emergencyType || "N/A"} <span class="pill ${sev}">${(data.severity || "").toUpperCase()}</span></div>
-                <div class="line"><strong>Blood group:</strong> ${data.bloodGroup || "Unknown"}</div>
-                <div class="line"><strong>Urgency score:</strong> ${data.urgencyScore ?? "—"} / 10</div>
-                <div class="line"><strong>ETA:</strong> ${data.eta || "N/A"}</div>
-                ${ambLine}
-                <div class="line"><strong>Hospital match:</strong> ${data.hospitalSelectionReason || "—"} (score ${data.hospitalScore ?? "—"})</div>
-                <div class="line"><strong>Emergency ID:</strong> ${data.emergencyId || "—"}</div>
-                <div class="line" style="color:var(--muted);font-size:0.85rem"><strong>Received:</strong> ${created}</div>
-              `;
-              cardsEl.appendChild(el);
-            });
-
-            const latest = pickLatestForHospital(docs);
-            syncFormToAlert(latest);
-          },
-          (error) => {
-            cardsEl.innerHTML = `<div class="empty">Failed to load notifications: ${error.message}</div>`;
-          }
-        );
-
-      /** Real-time response history for this hospital */
-      db.collection("hospitalResponses")
-        .where("hospitalId", "==", HOSPITAL_ID)
-        .onSnapshot(
-          (snap) => {
-            const rows = [];
-            snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
-            rows.sort((a, b) => {
-              const ma = a.respondedAt?.toMillis ? a.respondedAt.toMillis() : 0;
-              const mb = b.respondedAt?.toMillis ? b.respondedAt.toMillis() : 0;
-              return mb - ma;
-            });
-
-            if (!rows.length) {
-              historyList.innerHTML = '<div class="empty">No responses yet.</div>';
-              return;
-            }
-
-            historyList.innerHTML = "";
-            rows.forEach((r) => {
-              const div = document.createElement("div");
-              const st = r.status === "accepted" ? "accepted" : "rejected";
-              div.className = `history-card ${st}`;
-              div.innerHTML = `
-                <strong>${r.emergencyId}</strong> ·
-                <span style="color:${r.status === "accepted" ? "var(--green)" : "var(--muted)"}">${r.status}</span><br/>
-                <span style="color:var(--muted);font-size:0.85rem">${r.specialistName} · ${r.specialty}</span><br/>
-                <span style="font-size:0.8rem">${formatTs(r.respondedAt)}</span>
-              `;
-              historyList.appendChild(div);
-            });
-          },
-          (e) => {
-            historyList.innerHTML = `<div class="empty">History error: ${e.message}</div>`;
-          }
-        );
-
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        formError.classList.add("hidden");
-        formSuccess.classList.add("hidden");
-
-        const emergencyId = document.getElementById("fEmergencyId").value.trim();
-        if (!emergencyId) {
-          formError.textContent = "No emergency loaded yet — wait for an alert.";
-          formError.classList.remove("hidden");
-          return;
-        }
-        if (submittedEmergencyIds.has(emergencyId)) {
-          formError.textContent = "This emergency was already submitted.";
-          formError.classList.remove("hidden");
-          return;
-        }
-
-        const icuBeds = document.getElementById("fIcu").value;
-        const erBeds = document.getElementById("fEr").value;
-        const specialistName = document.getElementById("fSpecialist").value.trim();
-        const specialty = document.getElementById("fSpecialty").value;
-        const status = form.querySelector('input[name="fStatus"]:checked')?.value;
-
-        if (!specialistName) {
-          formError.textContent = "Please enter specialist name.";
-          formError.classList.remove("hidden");
-          return;
-        }
-
-        btnSubmit.disabled = true;
-
-        try {
-          const res = await fetch(
-            `${API_BASE}/hospitals/${encodeURIComponent(HOSPITAL_ID)}/update-availability`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                emergencyId,
-                icuBeds: Number(icuBeds),
-                erBeds: Number(erBeds),
-                specialistName,
-                specialty,
-                status
-              })
-            }
-          );
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-
-          submittedEmergencyIds.add(emergencyId);
-          formSuccess.textContent = "Response recorded successfully.";
-          formSuccess.classList.remove("hidden");
-          btnSubmit.disabled = true;
-          form.querySelectorAll("input, select").forEach((el) => {
-            if (el.id !== "fEmergencyId" && el.id !== "fHospitalId") el.disabled = true;
-          });
-        } catch (err) {
-          formError.textContent = err.message || "Submit failed.";
-          formError.classList.remove("hidden");
-          btnSubmit.disabled = false;
-        }
-      });
-    </script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hospital Emergency Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root{--bg:#0a0a0a;--card:#111;--border:#222;--text:#e8e8e8;--muted:#888;--red:#ff3333;--green:#00ff88;--orange:#ff9900;--blue:#0088ff}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
+    .banner{padding:16px;text-align:center;background:linear-gradient(90deg,#5c0000,var(--red));font-weight:700}
+    .wrap{max-width:1050px;margin:0 auto;padding:18px 14px 36px}.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px}
+    .cards{display:grid;gap:12px}.pill{display:inline-block;padding:2px 8px;border-radius:8px;font-size:.72rem;font-weight:700}
+    .p108{background:rgba(0,136,255,.2);color:var(--blue)}.govt{background:#2a2a2a;color:#ccc}.priv{background:#2a2a2a;color:#aaa}
+    .line{margin:6px 0}.small{font-size:.82rem;color:var(--muted)}.empty{border:1px dashed var(--border);padding:16px;border-radius:10px;color:var(--muted);text-align:center}
+    label{display:block;font-size:.8rem;color:var(--muted);margin:0 0 4px}input,select{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:#0d0d0d;color:var(--text);margin-bottom:10px}
+    .btn{padding:12px 14px;border:none;border-radius:10px;background:var(--red);color:#fff;font-weight:700;width:100%;cursor:pointer}.ok{color:var(--green)}.err{color:var(--red)}.hidden{display:none}
+    @media (min-width:900px){.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
+  </style>
+</head>
+<body>
+  <div class="banner">🏥 Incoming Emergency — Hospital Console</div>
+  <div class="wrap">
+    <p class="small">Hospital ID: <strong id="hospitalIdLabel"></strong></p>
+    <section class="card"><h3 style="margin:0 0 10px">Live incoming alerts</h3><div id="cards" class="cards"><div class="empty">Waiting for emergency notifications…</div></div></section>
+    <section class="card">
+      <h3 style="margin:0 0 10px">Hospital response</h3>
+      <form id="responseForm">
+        <div class="grid2"><div><label for="fEmergencyId">Emergency ID</label><input id="fEmergencyId" readonly /></div><div><label for="fHospitalId">Hospital ID</label><input id="fHospitalId" readonly /></div></div>
+        <div class="grid2"><div><label for="fIcu">Available ICU beds</label><input id="fIcu" type="number" min="0" value="3" required /></div><div><label for="fEr">Available ER beds</label><input id="fEr" type="number" min="0" value="2" required /></div></div>
+        <div class="grid2"><div><label for="fSpecialist">Specialist on duty</label><input id="fSpecialist" required /></div><div><label for="fSpecialty">Specialty</label><select id="fSpecialty"><option value="trauma">trauma</option><option value="cardiac">cardiac</option><option value="accident">accident</option></select></div></div>
+        <div style="display:flex;gap:14px;margin:6px 0 12px"><label><input type="radio" name="fStatus" value="accepted" checked /> Accept</label><label><input type="radio" name="fStatus" value="rejected" /> Reject</label></div>
+        <button class="btn" id="btnSubmitResponse">📋 Submit Response</button>
+      </form>
+      <p id="formSuccess" class="ok hidden"></p><p id="formError" class="err hidden"></p>
+    </section>
+    <section class="card"><h3 style="margin:0 0 10px">Response history</h3><div id="historyList"><div class="empty">No responses yet.</div></div></section>
+  </div>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig={apiKey:"AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50",authDomain:"emergency-response-8701b.firebaseapp.com",projectId:"emergency-response-8701b",storageBucket:"emergency-response-8701b.firebasestorage.app",messagingSenderId:"558477100061",appId:"1:558477100061:web:074e110297b131b86172f4"};
+    const HOSPITAL_ID="hosp_001"; const API_BASE="http://localhost:3000"; document.getElementById("hospitalIdLabel").textContent=HOSPITAL_ID;
+    firebase.initializeApp(firebaseConfig); const db=firebase.firestore();
+    const cardsEl=document.getElementById("cards"), historyList=document.getElementById("historyList"), form=document.getElementById("responseForm");
+    const formSuccess=document.getElementById("formSuccess"), formError=document.getElementById("formError"), btnSubmit=document.getElementById("btnSubmitResponse");
+    const submittedEmergencyIds=new Set(); let latestForForm=null;
+    const fmt=(ts)=>{ if(!ts) return "—"; const d=ts.toDate?ts.toDate():new Date(ts); return isNaN(d.getTime())?"—":d.toLocaleString(); };
+    const ambPill=(t)=>t==="108"?'<span class="pill p108">108</span>':t==="govt"?'<span class="pill govt">Govt</span>':'<span class="pill priv">Private</span>';
+    const sevClass=(s)=>s==="high"?"#ff3333":s==="medium"?"#ff9900":"#00ff88";
+    const ago=(iso)=>{ if(!iso) return "—"; const sec=Math.max(0,Math.floor((Date.now()-new Date(iso).getTime())/1000)); return `${sec}s ago`; };
+    function patientMapsLink(loc){ return loc&&Number.isFinite(+loc.lat)&&Number.isFinite(+loc.lng)?`https://www.google.com/maps?q=${loc.lat},${loc.lng}`:"#"; }
+    function renderCard(data){const loc=data.patientLocation||{},amb=data.ambulance||{},hospLoc=data.hospitalLocation||{}; return `<div class="card"><div class="line"><strong>Emergency</strong> ${data.emergencyType||"N/A"} <span style="color:${sevClass(data.severity)}">${(data.severity||"").toUpperCase()}</span></div><div class="line"><strong>Patient</strong>: ${data.patientName||"Unknown"} (${data.patientAge??"—"}) · Blood ${data.bloodGroup||"Unknown"}</div><div class="line"><strong>Patient live location</strong>: ${loc.lat??"—"}, ${loc.lng??"—"} · Last updated: ${ago(loc.updatedAt)}</div><div class="line"><a href="${patientMapsLink(loc)}" target="_blank" rel="noreferrer">Open patient in Google Maps</a></div><div class="line"><strong>Ambulance</strong>: ${amb.id||"—"} (${amb.type||"—"}) ${ambPill(amb.type)} · ${amb.distance||"—"} · ETA to patient ${amb.estimatedArrival||"—"}</div><div class="line"><strong>ETA to hospital</strong>: ${data.eta||"—"}</div><div class="line"><strong>Hospital match</strong>: ${data.hospitalName||"—"} · ${data.hospitalSelectionReason||"—"}</div><div class="line small">Hospital coordinates: ${hospLoc.lat??"—"}, ${hospLoc.lng??"—"} · Emergency ID: ${data.emergencyId||"—"}</div></div>`;}
+    db.collection("notifications").orderBy("createdAt","desc").onSnapshot((snap)=>{const all=snap.docs.map(d=>({id:d.id,...d.data()})).filter(n=>n.hospitalId===HOSPITAL_ID); if(!all.length){cardsEl.innerHTML='<div class="empty">No alerts for this hospital yet.</div>'; latestForForm=null; syncForm(); return;} cardsEl.innerHTML=all.map(renderCard).join(""); latestForForm=all[0]; syncForm();},(e)=>cardsEl.innerHTML=`<div class="empty">Failed to load notifications: ${e.message}</div>`);
+    function syncForm(){document.getElementById("fEmergencyId").value=latestForForm?.emergencyId||"";document.getElementById("fHospitalId").value=HOSPITAL_ID;const emId=latestForForm?.emergencyId; btnSubmit.disabled=!(emId&&!submittedEmergencyIds.has(emId));}
+    db.collection("hospitalResponses").where("hospitalId","==",HOSPITAL_ID).onSnapshot((snap)=>{const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()})); rows.sort((a,b)=>(b.respondedAt?.toMillis?.()||0)-(a.respondedAt?.toMillis?.()||0)); historyList.innerHTML=rows.length?rows.map(r=>`<div class="card"><strong>${r.emergencyId}</strong> · <span class="${r.status==="accepted"?"ok":"small"}">${r.status}</span><div class="small">${r.specialistName} · ${r.specialty} · ${fmt(r.respondedAt)}</div></div>`).join(""):'<div class="empty">No responses yet.</div>';});
+    form.addEventListener("submit",async(e)=>{e.preventDefault();formError.classList.add("hidden");formSuccess.classList.add("hidden");const emergencyId=document.getElementById("fEmergencyId").value.trim(); if(!emergencyId){formError.textContent="No emergency loaded yet."; formError.classList.remove("hidden"); return;} const payload={emergencyId,icuBeds:Number(document.getElementById("fIcu").value),erBeds:Number(document.getElementById("fEr").value),specialistName:document.getElementById("fSpecialist").value.trim(),specialty:document.getElementById("fSpecialty").value,status:form.querySelector('input[name="fStatus"]:checked')?.value}; if(!payload.specialistName){formError.textContent="Please enter specialist name.";formError.classList.remove("hidden");return;} btnSubmit.disabled=true; try{const res=await fetch(`${API_BASE}/hospitals/${encodeURIComponent(HOSPITAL_ID)}/update-availability`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); const data=await res.json().catch(()=>({})); if(!res.ok) throw new Error(data.error||`HTTP ${res.status}`); if(payload.status==="accepted"&&latestForForm){const note=latestForForm; await db.collection("ambulanceAssignments").doc(note.emergencyId).set({ambulanceId:note.ambulance?.id||null,emergencyId:note.emergencyId,patientInfo:{name:note.patientName||"Unknown",age:note.patientAge||null,bloodGroup:note.bloodGroup||"Unknown",emergencyType:note.emergencyType||"unknown",severity:note.severity||"unknown",location:note.patientLocation||null,additionalNotes:note.additionalNotes||null},hospitalInfo:{id:HOSPITAL_ID,name:note.hospitalName||"Unknown",location:note.hospitalLocation||null,icuBeds:payload.icuBeds,erBeds:payload.erBeds,specialistName:payload.specialistName,specialty:payload.specialty},status:"assigned",assignedAt:new Date().toISOString(),updatedAt:new Date().toISOString()},{merge:true});} submittedEmergencyIds.add(emergencyId); formSuccess.textContent="Response recorded successfully."; formSuccess.classList.remove("hidden");}catch(err){formError.textContent=err.message||"Submit failed.";formError.classList.remove("hidden");btnSubmit.disabled=false;}});
+  </script>
+</body>
 </html>

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Emergency Workflow Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root{--bg:#0a0a0a;--card:#111;--border:#222;--text:#eee;--muted:#888;--ok:#00ff88;--act:#ffd166;--pend:#666;--blue:#6c7bff;--purple:#a06bff}
+      *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
+      header{padding:14px 16px;background:linear-gradient(90deg,#1a1f5f,#4b2f8a);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+      .wrap{max-width:1100px;margin:0 auto;padding:16px}
+      .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px}
+      .step{border-left:4px solid var(--pend)} .done{border-left-color:var(--ok)} .active{border-left-color:var(--act)}
+      .meta{color:var(--muted);font-size:.86rem} .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+      .stat{background:#0f0f15;border:1px solid var(--border);border-radius:10px;padding:10px}
+    </style>
+  </head>
+  <body>
+    <header>
+      <h2 style="margin:0">📊 Emergency Workflow Monitor</h2>
+      <div id="clock"></div>
+    </header>
+    <main class="wrap">
+      <section id="timeline"></section>
+      <section class="card">
+        <h3 style="margin:0 0 8px">Live Stats</h3>
+        <div class="stat-grid">
+          <div class="stat"><div class="meta">Total emergencies today</div><div id="sTotal">0</div></div>
+          <div class="stat"><div class="meta">Average response time</div><div id="sAvg">—</div></div>
+          <div class="stat"><div class="meta">108 / govt / private</div><div id="sTypes">0 / 0 / 0</div></div>
+          <div class="stat"><div class="meta">Most common emergency type</div><div id="sCommon">—</div></div>
+        </div>
+      </section>
+    </main>
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+    <script>
+      // Firebase config placeholder
+      const firebaseConfig={apiKey:"AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50",authDomain:"emergency-response-8701b.firebaseapp.com",projectId:"emergency-response-8701b",storageBucket:"emergency-response-8701b.firebasestorage.app",messagingSenderId:"558477100061",appId:"1:558477100061:web:074e110297b131b86172f4"};
+      firebase.initializeApp(firebaseConfig); const db=firebase.firestore();
+      const timelineEl=document.getElementById("timeline"); let emergencies=[], assignments=[], responses=[];
+      setInterval(()=>document.getElementById("clock").textContent=new Date().toLocaleString(),1000);
+      const fmt=(t)=>t?new Date(t).toLocaleString():"—";
+      function card(title, body, cls){ return `<section class="card step ${cls}"><h3 style="margin:0 0 6px">${title}</h3><div>${body}</div></section>`; }
+      function statusCls(done,active){ return done?"done":active?"active":""; }
+      function render(){
+        if(!emergencies.length){timelineEl.innerHTML='<section class="card"><div class="meta">Waiting for emergency stream…</div></section>'; return;}
+        const e=emergencies[0]; const a=assignments.find(x=>x.emergencyId===e.id)||{}; const r=responses.find(x=>x.emergencyId===e.id)||{};
+        const blocks=[
+          card("Step 1 — Emergency Triggered",`Who: ${e.patientName||e.userId||"Unknown"} · When: ${fmt(e.createdAt)} · Location: ${e.location?.lat??"—"}, ${e.location?.lng??"—"} · Severity: ${e.severity||"—"}`,statusCls(true,false)),
+          card("Step 2 — AI Classification",`Severity: ${e.severity||"—"} · Type: ${e.emergencyType||"—"} · Urgency: ${e.urgencyScore??"—"}`,statusCls(!!e.urgencyScore,!a.ambulanceId)),
+          card("Step 3 — Ambulance Dispatched",`Ambulance: ${a.ambulanceId||e.assignedAmbulance||"—"} · Type: ${a.ambulanceType||"—"} · Distance: ${a.ambulanceDistance||"—"} · ETA: ${a.ambulanceEstimatedArrival||"—"}`,statusCls(!!(a.ambulanceId||e.assignedAmbulance),!e.assignedHospital)),
+          card("Step 4 — Hospital Notified",`Hospital: ${e.assignedHospital||a.hospitalInfo?.id||"—"} · Beds: ICU ${a.hospitalInfo?.icuBeds??"—"} / ER ${a.hospitalInfo?.erBeds??"—"} · Notified: ${fmt(e.updatedAt||e.createdAt)}`,statusCls(!!e.assignedHospital, !r.id)),
+          card("Step 5 — Hospital Accepted",`Specialist: ${r.specialistName||a.hospitalInfo?.specialistName||"—"} · Confirmed beds: ICU ${r.icuBeds??a.hospitalInfo?.icuBeds??"—"} / ER ${r.erBeds??a.hospitalInfo?.erBeds??"—"} · Response: ${fmt(r.respondedAt?.toDate?.()||r.respondedAt)}`,statusCls(r.status==="accepted",a.status==="assigned")),
+          card("Step 6 — Patient Picked Up",`Timestamp: ${fmt(a.pickedUpAt)}`,statusCls(!!a.pickedUpAt,a.status==="picked_up")),
+          card("Step 7 — Arrived at Hospital",`${a.completedAt?"Emergency Resolved ✅":"Pending"} · Total response time: ${e.createdAt&&a.completedAt?Math.round((new Date(a.completedAt)-new Date(e.createdAt))/60000)+" mins":"—"}`,statusCls(!!a.completedAt,a.status==="arriving_hospital"))
+        ];
+        timelineEl.innerHTML=blocks.join("");
+        computeStats();
+      }
+      function computeStats(){
+        const today=emergencies.filter(e=>new Date(e.createdAt).toDateString()===new Date().toDateString());
+        document.getElementById("sTotal").textContent=today.length;
+        const done=assignments.filter(a=>a.completedAt&&a.assignedAt); const mins=done.map(a=>(new Date(a.completedAt)-new Date(a.assignedAt))/60000).filter(n=>n>0);
+        document.getElementById("sAvg").textContent=mins.length?`${Math.round(mins.reduce((p,c)=>p+c,0)/mins.length)} mins`:"—";
+        const typeCount={108:0,govt:0,private:0}; assignments.forEach(a=>{if(typeCount[a.ambulanceType]!=null) typeCount[a.ambulanceType]++;});
+        document.getElementById("sTypes").textContent=`${typeCount["108"]} / ${typeCount.govt} / ${typeCount.private}`;
+        const emType={}; emergencies.forEach(e=>{const k=e.emergencyType||"unknown"; emType[k]=(emType[k]||0)+1;});
+        const common=Object.entries(emType).sort((a,b)=>b[1]-a[1])[0]?.[0]||"—"; document.getElementById("sCommon").textContent=common;
+      }
+      db.collection("emergencies").orderBy("createdAt","desc").onSnapshot(s=>{emergencies=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+      db.collection("ambulanceAssignments").orderBy("assignedAt","desc").onSnapshot(s=>{assignments=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+      db.collection("hospitalResponses").orderBy("respondedAt","desc").onSnapshot(s=>{responses=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+    </script>
+  </body>
+</html>

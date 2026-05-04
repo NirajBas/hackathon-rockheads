@@ -5,11 +5,9 @@ const dispatchService = require("../services/dispatchService");
 const hospitalService = require("../services/hospitalService");
 const logger = require("../utils/logger");
 
-// Generates a simple ETA string for demo response payloads.
-const estimateEta = (severity) => {
-  if (severity === "high") return "8 mins";
-  if (severity === "medium") return "12 mins";
-  return "18 mins";
+const estimateEta = (distanceKm) => {
+  const mins = Math.max(1, Math.round((Number(distanceKm) / 40) * 60));
+  return Number.isFinite(mins) ? `${mins} mins` : "unknown";
 };
 
 // Orchestrates full emergency lifecycle from classification to notification.
@@ -19,7 +17,7 @@ const createEmergency = async (req, res) => {
       return res.status(500).json({ error: "Firestore not configured" });
     }
 
-    const { userId, trigger, bloodGroup ,location} = req.body;
+    const { userId, trigger, bloodGroup, location, patientName, patientAge, additionalNotes } = req.body;
     if (!userId || !trigger) {
       return res.status(400).json({ error: "userId and trigger are required" });
     }
@@ -45,13 +43,27 @@ const createEmergency = async (req, res) => {
       requiredBeds,
       urgencyScore,
       bloodGroup: bloodGroup || "Unknown",
+      patientName: patientName || null,
+      patientAge: Number.isFinite(Number(patientAge)) ? Number(patientAge) : null,
+      location:
+        location &&
+        Number.isFinite(Number(location.lat)) &&
+        Number.isFinite(Number(location.lng))
+          ? {
+              lat: Number(location.lat),
+              lng: Number(location.lng),
+              accuracy: Number(location.accuracy) || null,
+              updatedAt: location.updatedAt || new Date().toISOString()
+            }
+          : null,
+      additionalNotes: additionalNotes || null,
       status: "pending_dispatch",
       createdAt: new Date().toISOString()
     };
 
     await db.collection("emergencies").doc(emergencyId).set(emergencyDoc);
 
-    const ambulance = await dispatchService.findAvailableAmbulance();
+    const ambulance = await dispatchService.findAvailableAmbulance(emergencyDoc.location);
     if (!ambulance) {
       await db.collection("emergencies").doc(emergencyId).update({ status: "awaiting_ambulance" });
       return res.status(404).json({ error: "No available ambulance found" });
@@ -59,13 +71,13 @@ const createEmergency = async (req, res) => {
 
     await dispatchService.assignAmbulance(ambulance.id, emergencyId);
 
-    const hospital = await hospitalService.selectBestHospital(severity, emergencyType,location);
+    const hospital = await hospitalService.selectBestHospital(severity, emergencyType, emergencyDoc.location);
     if (!hospital) {
       await db.collection("emergencies").doc(emergencyId).update({ status: "awaiting_hospital" });
       return res.status(404).json({ error: "No suitable hospital available" });
     }
 
-    const eta = estimateEta(severity);
+    const eta = estimateEta(hospital.distance);
     const notification = await hospitalService.notifyHospital(hospital.id, {
       emergencyId,
       severity,
@@ -75,22 +87,60 @@ const createEmergency = async (req, res) => {
       urgencyScore,
       eta,
       bloodGroup: bloodGroup || "Unknown",
+      patientName: patientName || null,
+      patientAge: Number.isFinite(Number(patientAge)) ? Number(patientAge) : null,
+      patientLocation: emergencyDoc.location,
+      additionalNotes: additionalNotes || null,
       ambulance: {
         id: ambulance.id,
         type: ambulance.type,
-        priority: ambulance.priority
+        priority: ambulance.priority,
+        distance: ambulance.distance || "unknown",
+        estimatedArrival: ambulance.estimatedArrival || "unknown"
       },
       hospitalScore: hospital.score,
       hospitalSelectionReason: hospital.selectionReason,
       hospitalName: hospital.name,
       hospitalIcuBeds: hospital.icuBeds,
-      hospitalSpecialty: emergencyType
+      hospitalSpecialty: emergencyType,
+      hospitalLocation: hospital.location
     });
 
     await db.collection("emergencies").doc(emergencyId).update({
       assignedHospital: hospital.id,
+      assignedAmbulance: ambulance.id,
       notificationId: notification.id,
       status: "dispatched",
+      updatedAt: new Date().toISOString()
+    });
+
+    await db.collection("ambulanceAssignments").doc(emergencyId).set({
+      emergencyId,
+      ambulanceId: ambulance.id,
+      ambulanceType: ambulance.type,
+      ambulancePriority: ambulance.priority,
+      ambulanceDistance: ambulance.distance || "unknown",
+      ambulanceEstimatedArrival: ambulance.estimatedArrival || "unknown",
+      patientInfo: {
+        name: patientName || "Unknown",
+        age: Number.isFinite(Number(patientAge)) ? Number(patientAge) : null,
+        bloodGroup: bloodGroup || "Unknown",
+        emergencyType,
+        severity,
+        urgencyScore,
+        location: emergencyDoc.location,
+        additionalNotes: additionalNotes || null
+      },
+      hospitalInfo: {
+        id: hospital.id,
+        name: hospital.name,
+        location: hospital.location || null,
+        icuBeds: hospital.icuBeds || 0,
+        erBeds: hospital.erBeds || 0,
+        specialty: emergencyType
+      },
+      status: "assigned",
+      assignedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
 
@@ -106,16 +156,22 @@ const createEmergency = async (req, res) => {
       ambulance: {
         id: ambulance.id,
         type: ambulance.type,
-        priority: ambulance.priority
+        priority: ambulance.priority,
+        distance: ambulance.distance || "unknown",
+        estimatedArrival: ambulance.estimatedArrival || "unknown"
       },
       hospital: {
         name: hospital.name,
         eta,
         icuBeds: hospital.icuBeds,
+        erBeds: hospital.erBeds,
         specialty: emergencyType,
         selectionReason: hospital.selectionReason,
-        score: hospital.score
+        score: hospital.score,
+        distance: Number.isFinite(Number(hospital.distance)) ? `${Number(hospital.distance).toFixed(1)} km` : "unknown",
+        location: hospital.location || null
       },
+      patientLocation: emergencyDoc.location,
       status: "dispatched"
     });
   } catch (error) {

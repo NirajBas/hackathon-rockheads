@@ -13,11 +13,29 @@ const PRIORITY_LABELS = {
   private: "3rd - Private Ambulance"
 };
 
+const haversineDistance = (lat1, lng1, lat2, lng2) => {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const formatEtaMins = (distanceKm) => {
+  const mins = Math.max(1, Math.round((distanceKm / 40) * 60));
+  return `${mins} mins`;
+};
+
 /**
  * Strict dispatch: 108 first (free govt emergency), then govt, then private.
  * Returns ambulance doc with `priority` label for API/UI.
  */
-const findAvailableAmbulance = async () => {
+const findAvailableAmbulance = async (location) => {
   ensureDb();
   const snapshot = await db
     .collection("ambulances")
@@ -30,33 +48,64 @@ const findAvailableAmbulance = async () => {
 
   const ambulances = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
-  const pickFirst = (type) => ambulances.find((amb) => amb.type === type) || null;
+  const hasValidLocation =
+    location &&
+    Number.isFinite(Number(location.lat)) &&
+    Number.isFinite(Number(location.lng));
+  const lat = hasValidLocation ? Number(location.lat) : null;
+  const lng = hasValidLocation ? Number(location.lng) : null;
 
-  let chosen = pickFirst("108");
+  const pickNearestInType = (type) => {
+    const typed = ambulances.filter((amb) => amb.type === type);
+    if (!typed.length) return null;
+
+    if (!hasValidLocation) {
+      const fallback = typed[0];
+      return {
+        ...fallback,
+        distanceKm: null,
+        distance: "unknown",
+        estimatedArrival: "unknown"
+      };
+    }
+
+    const sorted = typed
+      .map((amb) => {
+        const ambLat = Number(amb.location?.lat);
+        const ambLng = Number(amb.location?.lng);
+        const distanceKm =
+          Number.isFinite(ambLat) && Number.isFinite(ambLng)
+            ? haversineDistance(lat, lng, ambLat, ambLng)
+            : 999;
+        return { ...amb, distanceKm };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const nearest = sorted[0];
+    return {
+      ...nearest,
+      distanceKm: nearest.distanceKm,
+      distance: `${nearest.distanceKm.toFixed(1)} km away`,
+      estimatedArrival: formatEtaMins(nearest.distanceKm)
+    };
+  };
+
+  let chosen = pickNearestInType("108");
   if (chosen) {
     logger.log("108 ambulance selected - highest priority");
-    return {
-      ...chosen,
-      priority: PRIORITY_LABELS["108"]
-    };
+    return { ...chosen, priority: PRIORITY_LABELS["108"] };
   }
 
-  chosen = pickFirst("govt");
+  chosen = pickNearestInType("govt");
   if (chosen) {
     logger.log("No 108 available, falling back to govt");
-    return {
-      ...chosen,
-      priority: PRIORITY_LABELS.govt
-    };
+    return { ...chosen, priority: PRIORITY_LABELS.govt };
   }
 
-  chosen = pickFirst("private");
+  chosen = pickNearestInType("private");
   if (chosen) {
     logger.log("No govt available, falling back to private");
-    return {
-      ...chosen,
-      priority: PRIORITY_LABELS.private
-    };
+    return { ...chosen, priority: PRIORITY_LABELS.private };
   }
 
   return null;

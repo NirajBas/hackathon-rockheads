@@ -20,63 +20,69 @@ const ensureDb = () => {
   }
 };
 
-/** Mock distance → points: 1km tier = 20, 2km = 15, 3km+ = 5 */
 const distancePoints = (km) => {
-  const d = Number(km) || 999;
-  if (d <= 1) return 20;
-  if (d <= 2) return 15;
+  const d = Number(km);
+  if (!Number.isFinite(d)) return 5;
+  if (d < 1) return 50;
+  if (d < 2) return 40;
+  if (d < 3) return 30;
+  if (d < 5) return 20;
+  if (d < 10) return 10;
   return 5;
 };
 
-const buildSelectionSummary = (hospital, emergencyType) => {
-  const dist = hospital.distance != null ? `${hospital.distance}km` : "unknown distance";
+const buildSelectionSummary = (hospital, emergencyType, distanceKm) => {
+  const dist = Number.isFinite(distanceKm) ? `${distanceKm.toFixed(2)}km` : "unknown distance";
   return `${hospital.name} selected: ${emergencyType} specialist + ${hospital.icuBeds || 0} ICU beds + ${dist} away`;
 };
 
-const buildSelectionReason = (hospital, emergencyType) => {
-  const dist = hospital.distance != null ? `${hospital.distance}km` : "unknown distance";
+const buildSelectionReason = (hospital, emergencyType, distanceKm) => {
+  const dist = Number.isFinite(distanceKm) ? `${distanceKm.toFixed(2)}km` : "unknown distance";
   return `Nearest ${emergencyType} center with ICU availability (${dist})`;
 };
 
-/**
- * Ranks hospitals: specialty match (+50), ICU (+10 each), ER (+5 each), distance tier.
- */
-const selectBestHospital = async (severity, emergencyType,location) => {
+const selectBestHospital = async (severity, emergencyType, location) => {
   ensureDb();
   const snapshot = await db.collection("hospitals").get();
   const hospitals = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
   const specialtyKey = emergencyType || "accident";
 
-  const candidates = hospitals.filter((hospital) => {
-    const specs = hospital.specialties || [];
-    const hasSpecialty = specs.includes(specialtyKey);
-    const hasIcu = (hospital.icuBeds || 0) > 0;
-    return hasSpecialty && hasIcu;
-  });
-
-  if (!candidates.length) {
+  if (!hospitals.length) {
     return null;
   }
 
-  const scored = candidates.map((hospital) => {
-    const specialtyMatch = (hospital.specialties || []).includes(specialtyKey) ? 50 : 0;
-    const icuPts = (hospital.icuBeds || 0) * 10;
-    const erPts = (hospital.erBeds || 0) * 5;
-    const realDistance = location ? haversineDistance(location.lat, location.lng, hospital.location.lat, hospital.location.lng)
-  : (hospital.distance || 999);
-  const distPts = distancePoints(realDistance);
+  const hasValidLocation =
+    location &&
+    Number.isFinite(Number(location.lat)) &&
+    Number.isFinite(Number(location.lng));
+
+  const scored = hospitals.map((hospital) => {
+    const specialtyMatch = (hospital.specialties || []).includes(specialtyKey) ? 100 : 0;
+    const icuPts = Math.max(0, Number(hospital.icuBeds) || 0) * 30;
+    const erPts = Math.max(0, Number(hospital.erBeds) || 0) * 10;
+    const realDistance =
+      hasValidLocation && hospital.location
+        ? haversineDistance(
+            Number(location.lat),
+            Number(location.lng),
+            Number(hospital.location.lat),
+            Number(hospital.location.lng)
+          )
+        : Number(hospital.distance) || 999;
+    const distPts = distancePoints(realDistance);
     const score = specialtyMatch + icuPts + erPts + distPts;
-    return { hospital, score };
+    return { hospital, score, distanceKm: realDistance };
   });
 
   scored.sort((a, b) => b.score - a.score);
   const best = scored[0];
   const hospital = best.hospital;
   const score = best.score;
+  const distanceKm = best.distanceKm;
 
-  const selectionReason = buildSelectionReason(hospital, specialtyKey);
-  logger.log(buildSelectionSummary(hospital, specialtyKey));
+  const selectionReason = buildSelectionReason(hospital, specialtyKey, distanceKm);
+  logger.log(buildSelectionSummary(hospital, specialtyKey, distanceKm));
 
   return {
     id: hospital.id,
@@ -85,7 +91,7 @@ const selectBestHospital = async (severity, emergencyType,location) => {
     erBeds: hospital.erBeds,
     specialties: hospital.specialties,
     location: hospital.location,
-    distance: hospital.distance,
+    distance: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
     selectionReason,
     score
   };

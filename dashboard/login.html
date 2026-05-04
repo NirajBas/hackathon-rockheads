@@ -54,6 +54,36 @@
         font-size: 0.9rem;
         margin: 0 0 28px;
       }
+      .status-bar {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 14px;
+      }
+      .loc-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: #101010;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .loc-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .loc-dot.live {
+        background: var(--green);
+        box-shadow: 0 0 10px var(--green);
+        animation: pulseGlow 1.8s ease-in-out infinite;
+      }
+      .loc-dot.off {
+        background: var(--red);
+        box-shadow: 0 0 8px rgba(255, 51, 51, 0.5);
+      }
       .split {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -291,6 +321,24 @@
         vertical-align: middle;
         margin-right: 8px;
       }
+      .voice-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .btn-mic {
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #161616;
+        color: var(--text);
+      }
+      .voice-status {
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
       @keyframes spin {
         to {
           transform: rotate(360deg);
@@ -305,6 +353,12 @@
     <div class="shell">
       <h1 class="page-title">AI Emergency Response — Family Access</h1>
       <p class="subtitle">Secure family registration · Guest emergency lane</p>
+      <div class="status-bar">
+        <div class="loc-indicator" id="locationIndicator">
+          <span class="loc-dot off" id="locationDot"></span>
+          <span id="locationLabel">📍 Location: Unavailable</span>
+        </div>
+      </div>
 
       <div class="split">
         <!-- LEFT: Account -->
@@ -457,7 +511,11 @@
             </div>
             <div class="field">
               <label for="gDesc">Emergency description</label>
-              <textarea id="gDesc" placeholder="What happened?"></textarea>
+              <div class="voice-row">
+                <textarea id="gDesc" placeholder="What happened?"></textarea>
+                <button type="button" class="btn-mic" id="btnGuestMic" title="Voice input">🎤</button>
+              </div>
+              <p class="voice-status" id="guestVoiceStatus"></p>
             </div>
             <div class="field">
               <label for="gBlood">Blood group</label>
@@ -477,6 +535,9 @@
     <script>
       const API_BASE = "http://localhost:3000";
       const BLOOD = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
+      const LOCATION_KEY = "live_location";
+      let currentLocation = null;
+      let lastLocationWrite = 0;
 
       function fillBloodSelects() {
         const ids = ["fhBlood", "moBlood", "selfBlood", "gBlood"];
@@ -490,6 +551,74 @@
       function fileNameOrNull(input) {
         const f = input && input.files && input.files[0];
         return f ? f.name : null;
+      }
+
+      function setLocationIndicator(isLive) {
+        const dot = document.getElementById("locationDot");
+        const label = document.getElementById("locationLabel");
+        dot.className = "loc-dot " + (isLive ? "live" : "off");
+        label.textContent = isLive ? "📍 Location: Live" : "📍 Location: Unavailable";
+      }
+
+      function saveLiveLocation(pos) {
+        currentLocation = {
+          lat: Number(pos.coords.latitude),
+          lng: Number(pos.coords.longitude),
+          accuracy: Number(pos.coords.accuracy),
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(LOCATION_KEY, JSON.stringify(currentLocation));
+        setLocationIndicator(true);
+      }
+
+      function startLocationTracking() {
+        if (!("geolocation" in navigator)) {
+          setLocationIndicator(false);
+          return;
+        }
+        navigator.geolocation.watchPosition(
+          (pos) => {
+            const now = Date.now();
+            if (now - lastLocationWrite < 10000) return;
+            lastLocationWrite = now;
+            saveLiveLocation(pos);
+          },
+          () => setLocationIndicator(false),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+        );
+      }
+
+      function startVoiceInput(textareaId, buttonId, statusId) {
+        const statusEl = document.getElementById(statusId);
+        const btn = document.getElementById(buttonId);
+        if (!btn) return;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          statusEl.textContent = "Voice input unavailable on this browser.";
+          return;
+        }
+        btn.addEventListener("click", () => {
+          const rec = new SpeechRecognition();
+          rec.continuous = false;
+          rec.lang = "en-IN";
+          statusEl.textContent = "🎤 Listening...";
+          rec.onresult = (e) => {
+            const text = Array.from(e.results)
+              .map((r) => r[0]?.transcript || "")
+              .join(" ");
+            document.getElementById(textareaId).value = text.trim();
+            statusEl.textContent = "✅ Voice captured";
+          };
+          rec.onerror = () => {
+            statusEl.textContent = "Voice capture failed. Try again.";
+          };
+          rec.onend = () => {
+            if (!document.getElementById(textareaId).value.trim()) {
+              statusEl.textContent = "Tap mic and speak clearly.";
+            }
+          };
+          rec.start();
+        });
       }
 
       function showAccount(view) {
@@ -732,16 +861,16 @@
         okEl.classList.add("hidden");
         box.classList.add("hidden");
         const name = document.getElementById("gName").value.trim();
-        const location = document.getElementById("gLocation").value.trim();
+        const locationText = document.getElementById("gLocation").value.trim();
         const desc = document.getElementById("gDesc").value.trim();
         const blood = document.getElementById("gBlood").value;
-        if (!name || !location || !desc) {
+        if (!name || !locationText || !desc) {
           errEl.textContent = "Please fill name, location, and emergency description.";
           errEl.classList.remove("hidden");
           return;
         }
         const userId = "guest_" + Date.now().toString(36);
-        const trigger = `Guest emergency — ${name}. Location: ${location}. Situation: ${desc}`;
+        const trigger = `Guest emergency — ${name}. Location: ${locationText}. Situation: ${desc}`;
         const btn = document.getElementById("btnGuestSubmit");
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span>Sending…';
@@ -749,7 +878,15 @@
           const res = await fetch(`${API_BASE}/emergency/create`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId, trigger, bloodGroup: blood, location })
+            body: JSON.stringify({
+              userId,
+              trigger,
+              bloodGroup: blood,
+              location: currentLocation
+                ? { lat: currentLocation.lat, lng: currentLocation.lng, accuracy: currentLocation.accuracy }
+                : null,
+              additionalNotes: `Location description: ${locationText}`
+            })
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -767,6 +904,8 @@
       });
 
       fillBloodSelects();
+      startLocationTracking();
+      startVoiceInput("gDesc", "btnGuestMic", "guestVoiceStatus");
     </script>
   </body>
 </html>

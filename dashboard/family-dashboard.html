@@ -60,6 +60,28 @@
         font-size: 0.9rem;
         margin: 4px 0 0;
       }
+      .loc-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .loc-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .loc-dot.live {
+        background: var(--green);
+        box-shadow: 0 0 10px var(--green);
+        animation: pulseGlow 1.8s ease infinite;
+      }
+      .loc-dot.off {
+        background: var(--red);
+        box-shadow: 0 0 8px rgba(255, 51, 51, 0.5);
+      }
       .btn-logout {
         padding: 10px 16px;
         border-radius: 10px;
@@ -380,6 +402,24 @@
       .read-only-blood {
         font-weight: 600;
       }
+      .voice-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .btn-mic {
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #161616;
+        color: var(--text);
+      }
+      .voice-status {
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
     </style>
   </head>
   <body>
@@ -387,6 +427,10 @@
       <div>
         <h1>🏠 Family Emergency Dashboard</h1>
         <p class="welcome" id="welcomeLine">Welcome</p>
+        <div class="loc-indicator">
+          <span class="loc-dot off" id="locationDot"></span>
+          <span id="locationLabel">📍 Location: Unavailable</span>
+        </div>
       </div>
       <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
         <a class="link-detail" href="user-dashboard.html">Detailed live view →</a>
@@ -414,7 +458,11 @@
         </div>
         <div class="field">
           <label for="emDetails">Additional details (optional)</label>
-          <textarea id="emDetails" placeholder="Brief context for responders…"></textarea>
+          <div class="voice-row">
+            <textarea id="emDetails" placeholder="Brief context for responders…"></textarea>
+            <button type="button" class="btn-mic" id="btnEmMic" title="Voice input">🎤</button>
+          </div>
+          <p class="voice-status" id="voiceStatus"></p>
         </div>
         <div class="field">
           <label>Blood group (auto)</label>
@@ -423,6 +471,7 @@
         <button type="button" class="btn-emergency" id="btnTriggerEmergency">🚨 TRIGGER EMERGENCY</button>
         <p id="emError" class="err hidden" role="alert"></p>
         <div id="emResponse" class="response-panel hidden" aria-live="polite"></div>
+        <button type="button" class="btn hidden" id="btnReplayVoice" style="margin-top:10px">🔊 Replay Message</button>
       </section>
 
       <section class="card">
@@ -532,6 +581,10 @@
     <script>
       const API_BASE = "http://localhost:3000";
       const BLOOD = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
+      const LOCATION_KEY = "live_location";
+      let currentLocation = null;
+      let lastLocationWrite = 0;
+      let lastDispatchResponse = null;
 
       function bloodClass(bg) {
         const m = {
@@ -582,6 +635,88 @@
         return "mem_" + Math.random().toString(36).slice(2, 11);
       }
 
+      function setLocationIndicator(isLive) {
+        const dot = document.getElementById("locationDot");
+        const label = document.getElementById("locationLabel");
+        dot.className = "loc-dot " + (isLive ? "live" : "off");
+        label.textContent = isLive ? "📍 Location: Live" : "📍 Location: Unavailable";
+      }
+
+      function startLocationTracking() {
+        if (!("geolocation" in navigator)) {
+          setLocationIndicator(false);
+          return;
+        }
+        const cached = localStorage.getItem(LOCATION_KEY);
+        if (cached) {
+          try {
+            currentLocation = JSON.parse(cached);
+            if (currentLocation && Number.isFinite(Number(currentLocation.lat))) {
+              setLocationIndicator(true);
+            }
+          } catch (_) {}
+        }
+        navigator.geolocation.watchPosition(
+          (pos) => {
+            const now = Date.now();
+            if (now - lastLocationWrite < 10000) return;
+            lastLocationWrite = now;
+            currentLocation = {
+              lat: Number(pos.coords.latitude),
+              lng: Number(pos.coords.longitude),
+              accuracy: Number(pos.coords.accuracy),
+              updatedAt: new Date().toISOString()
+            };
+            localStorage.setItem(LOCATION_KEY, JSON.stringify(currentLocation));
+            setLocationIndicator(true);
+          },
+          () => setLocationIndicator(false),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+        );
+      }
+
+      function startVoiceInput(textareaId, buttonId, statusId) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const status = document.getElementById(statusId);
+        if (!SpeechRecognition) {
+          status.textContent = "Voice input unavailable on this browser.";
+          return;
+        }
+        document.getElementById(buttonId).addEventListener("click", () => {
+          const rec = new SpeechRecognition();
+          rec.continuous = false;
+          rec.lang = "en-IN";
+          status.textContent = "🎤 Listening...";
+          rec.onresult = (event) => {
+            const transcript = Array.from(event.results)
+              .map((r) => r[0]?.transcript || "")
+              .join(" ")
+              .trim();
+            document.getElementById(textareaId).value = transcript;
+            status.textContent = "✅ Voice captured";
+          };
+          rec.onerror = () => {
+            status.textContent = "Voice capture failed. Try again.";
+          };
+          rec.start();
+        });
+      }
+
+      function speakResponse(data) {
+        if (!window.speechSynthesis) return;
+        const ambType = data?.ambulance?.type === "108" ? "Government 108 ambulance" : `${data?.ambulance?.type || ""} ambulance`;
+        const msg = new SpeechSynthesisUtterance();
+        msg.lang = "en-IN";
+        msg.rate = 0.9;
+        msg.text = `Emergency alert received. Severity is ${data?.severity || "unknown"}. ${ambType} has been dispatched and is ${
+          data?.ambulance?.distance || "nearby"
+        } away, estimated arrival in ${data?.ambulance?.estimatedArrival || "a few minutes"}. You are being taken to ${
+          data?.hospital?.name || "the nearest hospital"
+        }. Please stay calm. Help is on the way.`;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(msg);
+      }
+
       function fillSelect(sel, bloodOnly) {
         if (bloodOnly) {
           sel.innerHTML = BLOOD.map((b) => `<option value="${b}">${b}</option>`).join("");
@@ -598,6 +733,15 @@
         /* loadFamily redirected to login.html */
       }
       if (family) {
+        let migrated = false;
+        (family.members || []).forEach((m) => {
+          if (!m.id) {
+            m.id = memberId();
+            migrated = true;
+          }
+        });
+        if (migrated) saveFamily(family);
+
       function esc(s) {
         return String(s ?? "")
           .replace(/&/g, "&amp;")
@@ -767,13 +911,19 @@
               trigger,
               bloodGroup: m.bloodGroup,
               patientName: m.name,
-              patientAge: m.age
+              patientAge: m.age,
+              location: currentLocation
+                ? { lat: currentLocation.lat, lng: currentLocation.lng, accuracy: currentLocation.accuracy }
+                : null
             })
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+          lastDispatchResponse = data;
           panel.innerHTML = renderEmResponse(data);
           panel.classList.remove("hidden");
+          document.getElementById("btnReplayVoice").classList.remove("hidden");
+          speakResponse(data);
           const amb = data.ambulance || {};
           pushHistory({
             at: new Date().toISOString(),
@@ -925,10 +1075,16 @@
         window.location.href = "login.html";
       });
 
+      document.getElementById("btnReplayVoice").addEventListener("click", () => {
+        if (lastDispatchResponse) speakResponse(lastDispatchResponse);
+      });
+
       renderWelcome();
       renderMemberSelect();
       renderMembersGrid();
       renderHistory();
+      startLocationTracking();
+      startVoiceInput("emDetails", "btnEmMic", "voiceStatus");
       }
     </script>
   </body>
