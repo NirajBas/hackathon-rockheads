@@ -912,6 +912,12 @@
               bloodGroup: m.bloodGroup,
               patientName: m.name,
               patientAge: m.age,
+              familyMembers: (family.members || []).map((member) => ({
+                name: member.name,
+                relation: member.relation,
+                bloodGroup: member.bloodGroup,
+                age: member.age
+              })),
               location: currentLocation
                 ? { lat: currentLocation.lat, lng: currentLocation.lng, accuracy: currentLocation.accuracy }
                 : null

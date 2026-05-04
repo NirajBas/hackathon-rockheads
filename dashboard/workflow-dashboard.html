@@ -41,22 +41,22 @@
       // Firebase config placeholder
       const firebaseConfig={apiKey:"AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50",authDomain:"emergency-response-8701b.firebaseapp.com",projectId:"emergency-response-8701b",storageBucket:"emergency-response-8701b.firebasestorage.app",messagingSenderId:"558477100061",appId:"1:558477100061:web:074e110297b131b86172f4"};
       firebase.initializeApp(firebaseConfig); const db=firebase.firestore();
-      const timelineEl=document.getElementById("timeline"); let emergencies=[], assignments=[], responses=[];
+      const timelineEl=document.getElementById("timeline"); let emergencies=[], notifications=[], assignments=[], responses=[];
       setInterval(()=>document.getElementById("clock").textContent=new Date().toLocaleString(),1000);
       const fmt=(t)=>t?new Date(t).toLocaleString():"—";
       function card(title, body, cls){ return `<section class="card step ${cls}"><h3 style="margin:0 0 6px">${title}</h3><div>${body}</div></section>`; }
       function statusCls(done,active){ return done?"done":active?"active":""; }
       function render(){
         if(!emergencies.length){timelineEl.innerHTML='<section class="card"><div class="meta">Waiting for emergency stream…</div></section>'; return;}
-        const e=emergencies[0]; const a=assignments.find(x=>x.emergencyId===e.id)||{}; const r=responses.find(x=>x.emergencyId===e.id)||{};
+        const e=emergencies[0]; const n=notifications.find(x=>x.emergencyId===e.id)||{}; const a=assignments.find(x=>x.emergencyId===e.id)||{}; const r=responses.find(x=>x.emergencyId===e.id)||{}; const amb=a.ambulanceInfo||{};
         const blocks=[
-          card("Step 1 — Emergency Triggered",`Who: ${e.patientName||e.userId||"Unknown"} · When: ${fmt(e.createdAt)} · Location: ${e.location?.lat??"—"}, ${e.location?.lng??"—"} · Severity: ${e.severity||"—"}`,statusCls(true,false)),
+          card("Step 1 - Triggered",`Emergency: ${e.id||"—"} · Patient: ${e.patientName||e.userId||"Unknown"} · Severity: ${e.severity||"—"} · Timestamp: ${fmt(e.createdAt)}`,statusCls(true,false)),
           card("Step 2 — AI Classification",`Severity: ${e.severity||"—"} · Type: ${e.emergencyType||"—"} · Urgency: ${e.urgencyScore??"—"}`,statusCls(!!e.urgencyScore,!a.ambulanceId)),
-          card("Step 3 — Ambulance Dispatched",`Ambulance: ${a.ambulanceId||e.assignedAmbulance||"—"} · Type: ${a.ambulanceType||"—"} · Distance: ${a.ambulanceDistance||"—"} · ETA: ${a.ambulanceEstimatedArrival||"—"}`,statusCls(!!(a.ambulanceId||e.assignedAmbulance),!e.assignedHospital)),
-          card("Step 4 — Hospital Notified",`Hospital: ${e.assignedHospital||a.hospitalInfo?.id||"—"} · Beds: ICU ${a.hospitalInfo?.icuBeds??"—"} / ER ${a.hospitalInfo?.erBeds??"—"} · Notified: ${fmt(e.updatedAt||e.createdAt)}`,statusCls(!!e.assignedHospital, !r.id)),
-          card("Step 5 — Hospital Accepted",`Specialist: ${r.specialistName||a.hospitalInfo?.specialistName||"—"} · Confirmed beds: ICU ${r.icuBeds??a.hospitalInfo?.icuBeds??"—"} / ER ${r.erBeds??a.hospitalInfo?.erBeds??"—"} · Response: ${fmt(r.respondedAt?.toDate?.()||r.respondedAt)}`,statusCls(r.status==="accepted",a.status==="assigned")),
-          card("Step 6 — Patient Picked Up",`Timestamp: ${fmt(a.pickedUpAt)}`,statusCls(!!a.pickedUpAt,a.status==="picked_up")),
-          card("Step 7 — Arrived at Hospital",`${a.completedAt?"Emergency Resolved ✅":"Pending"} · Total response time: ${e.createdAt&&a.completedAt?Math.round((new Date(a.completedAt)-new Date(e.createdAt))/60000)+" mins":"—"}`,statusCls(!!a.completedAt,a.status==="arriving_hospital"))
+          card("Step 3 — Ambulance Dispatched",`Ambulance: ${a.ambulanceId||amb.id||e.assignedAmbulance||"—"} · Type: ${amb.type||n.ambulanceType||"—"} · Distance: ${amb.distance||n.ambulanceDistance||"—"} · ETA: ${amb.estimatedArrival||n.eta||"—"}`,statusCls(!!(a.ambulanceId||amb.id||e.assignedAmbulance),!n.hospitalId)),
+          card("Step 4 — Hospital Notified",`Hospital: ${n.hospitalId||e.assignedHospital||a.hospitalInfo?.id||"—"} (${n.hospitalName||a.hospitalInfo?.name||"—"}) · Reason: ${n.selectionReason||"—"}`,statusCls(!!n.hospitalId, !r.id)),
+          card("Step 5 — Hospital Accepted",`Specialist: ${r.specialistName||a.hospitalInfo?.specialistName||"—"} · Confirmed ICU: ${r.icuBeds??a.hospitalInfo?.confirmedIcuBeds??"—"} · Responded: ${fmt(r.respondedAt?.toDate?.()||r.respondedAt)}`,statusCls(r.status==="accepted",a.status==="hospital_confirmed")),
+          card("Step 6 — Patient Picked Up",`Status: ${a.status==="picked_up"?"Picked Up ✅":"Pending"} · Timestamp: ${fmt(a.pickedUpAt)}`,statusCls(a.status==="picked_up",a.status==="hospital_confirmed")),
+          card("Step 7 — Arrived at Hospital",`Status: ${a.status==="completed"?"Completed ✅":"Pending"} · Total response time: ${e.createdAt&&a.completedAt?Math.round((new Date(a.completedAt)-new Date(e.createdAt))/60000)+" mins":"—"}`,statusCls(a.status==="completed",a.status==="picked_up"))
         ];
         timelineEl.innerHTML=blocks.join("");
         computeStats();
@@ -64,14 +64,15 @@
       function computeStats(){
         const today=emergencies.filter(e=>new Date(e.createdAt).toDateString()===new Date().toDateString());
         document.getElementById("sTotal").textContent=today.length;
-        const done=assignments.filter(a=>a.completedAt&&a.assignedAt); const mins=done.map(a=>(new Date(a.completedAt)-new Date(a.assignedAt))/60000).filter(n=>n>0);
+        const done=assignments.filter(a=>a.completedAt); const mins=done.map(a=>{ const e=emergencies.find(x=>x.id===a.emergencyId); return e&&e.createdAt?(new Date(a.completedAt)-new Date(e.createdAt))/60000:null; }).filter(n=>n&&n>0);
         document.getElementById("sAvg").textContent=mins.length?`${Math.round(mins.reduce((p,c)=>p+c,0)/mins.length)} mins`:"—";
-        const typeCount={108:0,govt:0,private:0}; assignments.forEach(a=>{if(typeCount[a.ambulanceType]!=null) typeCount[a.ambulanceType]++;});
+        const typeCount={108:0,govt:0,private:0}; assignments.forEach(a=>{const t=a.ambulanceInfo?.type||a.ambulanceType; if(typeCount[t]!=null) typeCount[t]++;});
         document.getElementById("sTypes").textContent=`${typeCount["108"]} / ${typeCount.govt} / ${typeCount.private}`;
         const emType={}; emergencies.forEach(e=>{const k=e.emergencyType||"unknown"; emType[k]=(emType[k]||0)+1;});
         const common=Object.entries(emType).sort((a,b)=>b[1]-a[1])[0]?.[0]||"—"; document.getElementById("sCommon").textContent=common;
       }
       db.collection("emergencies").orderBy("createdAt","desc").onSnapshot(s=>{emergencies=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+      db.collection("notifications").onSnapshot(s=>{notifications=s.docs.map(d=>({id:d.id,...d.data()})); render();});
       db.collection("ambulanceAssignments").orderBy("assignedAt","desc").onSnapshot(s=>{assignments=s.docs.map(d=>({id:d.id,...d.data()})); render();});
       db.collection("hospitalResponses").orderBy("respondedAt","desc").onSnapshot(s=>{responses=s.docs.map(d=>({id:d.id,...d.data()})); render();});
     </script>

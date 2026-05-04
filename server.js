@@ -15,22 +15,28 @@ const ambulanceRoutes = require("./routes/ambulance");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  })
+);
 app.use(express.json());
 app.use(express.static("dashboard"));
+
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "dashboard/user-dashboard.html")));
+app.get("/login", (req, res) => res.sendFile(path.join(__dirname, "dashboard/login.html")));
+app.get("/family", (req, res) => res.sendFile(path.join(__dirname, "dashboard/family-dashboard.html")));
+app.get("/hospital", (req, res) => res.sendFile(path.join(__dirname, "dashboard/hospital-dashboard.html")));
+app.get("/ambulance", (req, res) => res.sendFile(path.join(__dirname, "dashboard/ambulance-dashboard.html")));
+app.get("/workflow", (req, res) => res.sendFile(path.join(__dirname, "dashboard/workflow-dashboard.html")));
 
 app.use("/auth", authRoutes);
 app.use("/emergency", emergencyRoutes);
 app.use("/dispatch", dispatchRoutes);
 app.use("/hospitals", hospitalRoutes);
 app.use("/ambulances", ambulanceRoutes);
-
-app.get("/login", (req, res) => res.sendFile(path.join(__dirname, "dashboard/login.html")));
-app.get("/family", (req, res) => res.sendFile(path.join(__dirname, "dashboard/family-dashboard.html")));
-app.get("/hospital", (req, res) => res.sendFile(path.join(__dirname, "dashboard/hospital-dashboard.html")));
-app.get("/ambulance", (req, res) => res.sendFile(path.join(__dirname, "dashboard/ambulance-dashboard.html")));
-app.get("/workflow", (req, res) => res.sendFile(path.join(__dirname, "dashboard/workflow-dashboard.html")));
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "dashboard/user-dashboard.html")));
 
 app.use(async (req, res) => {
   try {

@@ -99,6 +99,7 @@ const updateAvailability = async (req, res) => {
       status,
       respondedAt: admin.firestore.FieldValue.serverTimestamp()
     };
+    console.log("[Firestore Write] hospitalResponses:", responseDoc);
 
     const batch = db.batch();
     batch.update(hospitalRef, {
@@ -114,6 +115,33 @@ const updateAvailability = async (req, res) => {
     batch.set(db.collection("hospitalResponses").doc(responseId), responseDoc);
 
     await batch.commit();
+
+    if (status === "accepted") {
+      const assignmentSnap = await db
+        .collection("ambulanceAssignments")
+        .where("emergencyId", "==", emergencyId)
+        .get();
+
+      const updatePayload = {
+        "hospitalInfo.specialistName": specialistName,
+        "hospitalInfo.confirmedIcuBeds": Number(icuBeds),
+        "hospitalInfo.confirmedErBeds": Number(erBeds),
+        status: "hospital_confirmed",
+        updatedAt: new Date().toISOString()
+      };
+
+      const assignmentBatch = db.batch();
+      assignmentSnap.forEach((doc) => {
+        console.log("[Firestore Write] ambulanceAssignments update:", {
+          assignmentId: doc.id,
+          ...updatePayload
+        });
+        assignmentBatch.update(doc.ref, updatePayload);
+      });
+      if (!assignmentSnap.empty) {
+        await assignmentBatch.commit();
+      }
+    }
 
     return res.status(200).json({
       success: true,

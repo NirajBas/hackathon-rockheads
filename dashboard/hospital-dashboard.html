@@ -23,7 +23,7 @@
 <body>
   <div class="banner">🏥 Incoming Emergency — Hospital Console</div>
   <div class="wrap">
-    <p class="small">Hospital ID: <strong id="hospitalIdLabel"></strong></p>
+    <p class="small">Hospital: <strong id="hospitalNameLabel"></strong> (ID: <strong id="hospitalIdLabel"></strong>)</p>
     <section class="card"><h3 style="margin:0 0 10px">Live incoming alerts</h3><div id="cards" class="cards"><div class="empty">Waiting for emergency notifications…</div></div></section>
     <section class="card">
       <h3 style="margin:0 0 10px">Hospital response</h3>
@@ -41,22 +41,163 @@
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
   <script>
-    const firebaseConfig={apiKey:"AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50",authDomain:"emergency-response-8701b.firebaseapp.com",projectId:"emergency-response-8701b",storageBucket:"emergency-response-8701b.firebasestorage.app",messagingSenderId:"558477100061",appId:"1:558477100061:web:074e110297b131b86172f4"};
-    const HOSPITAL_ID="hosp_001"; const API_BASE="http://localhost:3000"; document.getElementById("hospitalIdLabel").textContent=HOSPITAL_ID;
-    firebase.initializeApp(firebaseConfig); const db=firebase.firestore();
-    const cardsEl=document.getElementById("cards"), historyList=document.getElementById("historyList"), form=document.getElementById("responseForm");
-    const formSuccess=document.getElementById("formSuccess"), formError=document.getElementById("formError"), btnSubmit=document.getElementById("btnSubmitResponse");
-    const submittedEmergencyIds=new Set(); let latestForForm=null;
-    const fmt=(ts)=>{ if(!ts) return "—"; const d=ts.toDate?ts.toDate():new Date(ts); return isNaN(d.getTime())?"—":d.toLocaleString(); };
-    const ambPill=(t)=>t==="108"?'<span class="pill p108">108</span>':t==="govt"?'<span class="pill govt">Govt</span>':'<span class="pill priv">Private</span>';
-    const sevClass=(s)=>s==="high"?"#ff3333":s==="medium"?"#ff9900":"#00ff88";
-    const ago=(iso)=>{ if(!iso) return "—"; const sec=Math.max(0,Math.floor((Date.now()-new Date(iso).getTime())/1000)); return `${sec}s ago`; };
-    function patientMapsLink(loc){ return loc&&Number.isFinite(+loc.lat)&&Number.isFinite(+loc.lng)?`https://www.google.com/maps?q=${loc.lat},${loc.lng}`:"#"; }
-    function renderCard(data){const loc=data.patientLocation||{},amb=data.ambulance||{},hospLoc=data.hospitalLocation||{}; return `<div class="card"><div class="line"><strong>Emergency</strong> ${data.emergencyType||"N/A"} <span style="color:${sevClass(data.severity)}">${(data.severity||"").toUpperCase()}</span></div><div class="line"><strong>Patient</strong>: ${data.patientName||"Unknown"} (${data.patientAge??"—"}) · Blood ${data.bloodGroup||"Unknown"}</div><div class="line"><strong>Patient live location</strong>: ${loc.lat??"—"}, ${loc.lng??"—"} · Last updated: ${ago(loc.updatedAt)}</div><div class="line"><a href="${patientMapsLink(loc)}" target="_blank" rel="noreferrer">Open patient in Google Maps</a></div><div class="line"><strong>Ambulance</strong>: ${amb.id||"—"} (${amb.type||"—"}) ${ambPill(amb.type)} · ${amb.distance||"—"} · ETA to patient ${amb.estimatedArrival||"—"}</div><div class="line"><strong>ETA to hospital</strong>: ${data.eta||"—"}</div><div class="line"><strong>Hospital match</strong>: ${data.hospitalName||"—"} · ${data.hospitalSelectionReason||"—"}</div><div class="line small">Hospital coordinates: ${hospLoc.lat??"—"}, ${hospLoc.lng??"—"} · Emergency ID: ${data.emergencyId||"—"}</div></div>`;}
-    db.collection("notifications").orderBy("createdAt","desc").onSnapshot((snap)=>{const all=snap.docs.map(d=>({id:d.id,...d.data()})).filter(n=>n.hospitalId===HOSPITAL_ID); if(!all.length){cardsEl.innerHTML='<div class="empty">No alerts for this hospital yet.</div>'; latestForForm=null; syncForm(); return;} cardsEl.innerHTML=all.map(renderCard).join(""); latestForForm=all[0]; syncForm();},(e)=>cardsEl.innerHTML=`<div class="empty">Failed to load notifications: ${e.message}</div>`);
-    function syncForm(){document.getElementById("fEmergencyId").value=latestForForm?.emergencyId||"";document.getElementById("fHospitalId").value=HOSPITAL_ID;const emId=latestForForm?.emergencyId; btnSubmit.disabled=!(emId&&!submittedEmergencyIds.has(emId));}
-    db.collection("hospitalResponses").where("hospitalId","==",HOSPITAL_ID).onSnapshot((snap)=>{const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()})); rows.sort((a,b)=>(b.respondedAt?.toMillis?.()||0)-(a.respondedAt?.toMillis?.()||0)); historyList.innerHTML=rows.length?rows.map(r=>`<div class="card"><strong>${r.emergencyId}</strong> · <span class="${r.status==="accepted"?"ok":"small"}">${r.status}</span><div class="small">${r.specialistName} · ${r.specialty} · ${fmt(r.respondedAt)}</div></div>`).join(""):'<div class="empty">No responses yet.</div>';});
-    form.addEventListener("submit",async(e)=>{e.preventDefault();formError.classList.add("hidden");formSuccess.classList.add("hidden");const emergencyId=document.getElementById("fEmergencyId").value.trim(); if(!emergencyId){formError.textContent="No emergency loaded yet."; formError.classList.remove("hidden"); return;} const payload={emergencyId,icuBeds:Number(document.getElementById("fIcu").value),erBeds:Number(document.getElementById("fEr").value),specialistName:document.getElementById("fSpecialist").value.trim(),specialty:document.getElementById("fSpecialty").value,status:form.querySelector('input[name="fStatus"]:checked')?.value}; if(!payload.specialistName){formError.textContent="Please enter specialist name.";formError.classList.remove("hidden");return;} btnSubmit.disabled=true; try{const res=await fetch(`${API_BASE}/hospitals/${encodeURIComponent(HOSPITAL_ID)}/update-availability`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); const data=await res.json().catch(()=>({})); if(!res.ok) throw new Error(data.error||`HTTP ${res.status}`); if(payload.status==="accepted"&&latestForForm){const note=latestForForm; await db.collection("ambulanceAssignments").doc(note.emergencyId).set({ambulanceId:note.ambulance?.id||null,emergencyId:note.emergencyId,patientInfo:{name:note.patientName||"Unknown",age:note.patientAge||null,bloodGroup:note.bloodGroup||"Unknown",emergencyType:note.emergencyType||"unknown",severity:note.severity||"unknown",location:note.patientLocation||null,additionalNotes:note.additionalNotes||null},hospitalInfo:{id:HOSPITAL_ID,name:note.hospitalName||"Unknown",location:note.hospitalLocation||null,icuBeds:payload.icuBeds,erBeds:payload.erBeds,specialistName:payload.specialistName,specialty:payload.specialty},status:"assigned",assignedAt:new Date().toISOString(),updatedAt:new Date().toISOString()},{merge:true});} submittedEmergencyIds.add(emergencyId); formSuccess.textContent="Response recorded successfully."; formSuccess.classList.remove("hidden");}catch(err){formError.textContent=err.message||"Submit failed.";formError.classList.remove("hidden");btnSubmit.disabled=false;}});
+    const firebaseConfig = { apiKey: "AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50", authDomain: "emergency-response-8701b.firebaseapp.com", projectId: "emergency-response-8701b", storageBucket: "emergency-response-8701b.firebasestorage.app", messagingSenderId: "558477100061", appId: "1:558477100061:web:074e110297b131b86172f4" };
+    const params = new URLSearchParams(window.location.search);
+    const HOSPITAL_ID = params.get("id") || "hosp_001";
+    const HOSPITAL_NAMES = {
+      hosp_001: "City Trauma Center",
+      hosp_002: "Metro Emergency Hospital"
+    };
+    const API_BASE = "http://localhost:3000";
+    document.getElementById("hospitalIdLabel").textContent = HOSPITAL_ID;
+    document.getElementById("hospitalNameLabel").textContent = HOSPITAL_NAMES[HOSPITAL_ID] || "Hospital Console";
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const cardsEl = document.getElementById("cards");
+    const historyList = document.getElementById("historyList");
+    const form = document.getElementById("responseForm");
+    const formSuccess = document.getElementById("formSuccess");
+    const formError = document.getElementById("formError");
+    const btnSubmit = document.getElementById("btnSubmitResponse");
+    const submittedEmergencyIds = new Set();
+    let latestForForm = null;
+
+    const fmt = (ts) => {
+      if (!ts) return "—";
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+    };
+    const ambPill = (t) =>
+      t === "108"
+        ? '<span class="pill p108">108</span>'
+        : t === "govt"
+          ? '<span class="pill govt">Govt</span>'
+          : '<span class="pill priv">Private</span>';
+    const sevClass = (s) => (s === "high" ? "#ff3333" : s === "medium" ? "#ff9900" : "#00ff88");
+    const ago = (iso) => {
+      if (!iso) return "—";
+      const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+      return `${sec}s ago`;
+    };
+    const patientMapsLink = (loc) =>
+      loc && Number.isFinite(+loc.lat) && Number.isFinite(+loc.lng)
+        ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}`
+        : "#";
+
+    function renderCard(data) {
+      const loc = data.patientLocation || {};
+      const hospLoc = data.hospitalLocation || {};
+      return `<div class="card"><div class="line"><strong>Emergency</strong> ${data.emergencyType || "N/A"} <span style="color:${sevClass(data.severity)}">${(data.severity || "").toUpperCase()}</span></div><div class="line"><strong>Patient</strong>: ${data.patientName || "Unknown"} (${data.patientAge ?? "—"}) · Blood ${data.bloodGroup || "Unknown"}</div><div class="line"><strong>Patient live location</strong>: ${loc.lat ?? "—"}, ${loc.lng ?? "—"} · Last updated: ${ago(loc.updatedAt)}</div><div class="line"><a href="${patientMapsLink(loc)}" target="_blank" rel="noreferrer">Open patient in Google Maps</a></div><div class="line"><strong>Ambulance</strong>: ${data.ambulanceId || "—"} (${data.ambulanceType || "—"}) ${ambPill(data.ambulanceType)} · ${data.ambulanceDistance || "—"} · ETA to patient ${data.eta || "—"}</div><div class="line"><strong>Hospital match</strong>: ${data.hospitalName || "—"} · ${data.selectionReason || "—"}</div><div class="line small">Hospital coordinates: ${hospLoc.lat ?? "—"}, ${hospLoc.lng ?? "—"} · Emergency ID: ${data.emergencyId || "—"}</div></div>`;
+    }
+
+    db.collection("notifications").where("hospitalId", "==", HOSPITAL_ID).onSnapshot(
+      (snap) => {
+        const all = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort(
+            (a, b) =>
+              (b.timestamp?.toMillis?.() || new Date(b.createdAt || 0).getTime()) -
+              (a.timestamp?.toMillis?.() || new Date(a.createdAt || 0).getTime())
+          );
+        if (!all.length) {
+          cardsEl.innerHTML = '<div class="empty">No alerts for this hospital yet.</div>';
+          latestForForm = null;
+          syncForm();
+          return;
+        }
+        cardsEl.innerHTML = all.map(renderCard).join("");
+        latestForForm = all[0];
+        syncForm();
+      },
+      (e) => (cardsEl.innerHTML = `<div class="empty">Failed to load notifications: ${e.message}</div>`)
+    );
+
+    function syncForm() {
+      document.getElementById("fEmergencyId").value = latestForForm?.emergencyId || "";
+      document.getElementById("fHospitalId").value = HOSPITAL_ID;
+      const emId = latestForForm?.emergencyId;
+      btnSubmit.disabled = !(emId && !submittedEmergencyIds.has(emId));
+    }
+
+    db.collection("hospitalResponses").where("hospitalId", "==", HOSPITAL_ID).onSnapshot((snap) => {
+      const rows = [];
+      snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => (b.respondedAt?.toMillis?.() || 0) - (a.respondedAt?.toMillis?.() || 0));
+      historyList.innerHTML = rows.length
+        ? rows
+            .map(
+              (r) =>
+                `<div class="card"><strong>${r.emergencyId}</strong> · <span class="${r.status === "accepted" ? "ok" : "small"}">${r.status}</span><div class="small">${r.specialistName} · ${r.specialty} · ${fmt(r.respondedAt)}</div></div>`
+            )
+            .join("")
+        : '<div class="empty">No responses yet.</div>';
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      formError.classList.add("hidden");
+      formSuccess.classList.add("hidden");
+      const emergencyId = document.getElementById("fEmergencyId").value.trim();
+      if (!emergencyId) {
+        formError.textContent = "No emergency loaded yet.";
+        formError.classList.remove("hidden");
+        return;
+      }
+      const payload = {
+        emergencyId,
+        icuBeds: Number(document.getElementById("fIcu").value),
+        erBeds: Number(document.getElementById("fEr").value),
+        specialistName: document.getElementById("fSpecialist").value.trim(),
+        specialty: document.getElementById("fSpecialty").value,
+        status: form.querySelector('input[name="fStatus"]:checked')?.value
+      };
+      if (!payload.specialistName) {
+        formError.textContent = "Please enter specialist name.";
+        formError.classList.remove("hidden");
+        return;
+      }
+      btnSubmit.disabled = true;
+      try {
+        const res = await fetch(`${API_BASE}/hospitals/${encodeURIComponent(HOSPITAL_ID)}/update-availability`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+        if (payload.status === "accepted" && latestForForm) {
+          const assignmentSnap = await db
+            .collection("ambulanceAssignments")
+            .where("emergencyId", "==", emergencyId)
+            .get();
+          const updates = [];
+          assignmentSnap.forEach((doc) => {
+            const updatePayload = {
+              "hospitalInfo.specialistName": payload.specialistName,
+              "hospitalInfo.confirmedIcuBeds": payload.icuBeds,
+              "hospitalInfo.confirmedErBeds": payload.erBeds,
+              status: "hospital_confirmed",
+              updatedAt: new Date().toISOString()
+            };
+            console.log("[Firestore Write] ambulanceAssignments update:", {
+              assignmentId: doc.id,
+              ...updatePayload
+            });
+            updates.push(doc.ref.update(updatePayload));
+          });
+          await Promise.all(updates);
+        }
+
+        submittedEmergencyIds.add(emergencyId);
+        formSuccess.textContent = "Response recorded successfully.";
+        formSuccess.classList.remove("hidden");
+      } catch (err) {
+        formError.textContent = err.message || "Submit failed.";
+        formError.classList.remove("hidden");
+        btnSubmit.disabled = false;
+      }
+    });
   </script>
 </body>
 </html>

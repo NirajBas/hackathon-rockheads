@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require("uuid");
+const admin = require("firebase-admin");
 const db = require("../config/firebase");
 const aiService = require("../services/aiService");
 const dispatchService = require("../services/dispatchService");
@@ -17,7 +18,8 @@ const createEmergency = async (req, res) => {
       return res.status(500).json({ error: "Firestore not configured" });
     }
 
-    const { userId, trigger, bloodGroup, location, patientName, patientAge, additionalNotes } = req.body;
+    const { userId, trigger, bloodGroup, location, patientName, patientAge, additionalNotes, familyMembers } =
+      req.body;
     if (!userId || !trigger) {
       return res.status(400).json({ error: "userId and trigger are required" });
     }
@@ -57,10 +59,12 @@ const createEmergency = async (req, res) => {
             }
           : null,
       additionalNotes: additionalNotes || null,
+      familyMembers: Array.isArray(familyMembers) ? familyMembers : [],
       status: "pending_dispatch",
       createdAt: new Date().toISOString()
     };
 
+    console.log("[Firestore Write] emergencies:", emergencyDoc);
     await db.collection("emergencies").doc(emergencyId).set(emergencyDoc);
 
     const ambulance = await dispatchService.findAvailableAmbulance(emergencyDoc.location);
@@ -82,27 +86,19 @@ const createEmergency = async (req, res) => {
       emergencyId,
       severity,
       emergencyType,
-      recommendedSpecialty,
-      requiredBeds,
       urgencyScore,
       eta,
       bloodGroup: bloodGroup || "Unknown",
-      patientName: patientName || null,
-      patientAge: Number.isFinite(Number(patientAge)) ? Number(patientAge) : null,
+      patientName: patientName || "Unknown",
+      patientAge: Number.isFinite(Number(patientAge)) ? Number(patientAge) : "Unknown",
       patientLocation: emergencyDoc.location,
-      additionalNotes: additionalNotes || null,
-      ambulance: {
-        id: ambulance.id,
-        type: ambulance.type,
-        priority: ambulance.priority,
-        distance: ambulance.distance || "unknown",
-        estimatedArrival: ambulance.estimatedArrival || "unknown"
-      },
+      ambulanceId: ambulance.id,
+      ambulanceType: ambulance.type,
+      ambulancePriority: ambulance.priority || "1st - 108 Government Emergency Service",
+      ambulanceDistance: ambulance.distance || "unknown",
       hospitalScore: hospital.score,
-      hospitalSelectionReason: hospital.selectionReason,
+      selectionReason: hospital.selectionReason || "Nearest trauma center",
       hospitalName: hospital.name,
-      hospitalIcuBeds: hospital.icuBeds,
-      hospitalSpecialty: emergencyType,
       hospitalLocation: hospital.location
     });
 
@@ -114,22 +110,19 @@ const createEmergency = async (req, res) => {
       updatedAt: new Date().toISOString()
     });
 
-    await db.collection("ambulanceAssignments").doc(emergencyId).set({
+    const assignmentId = `asg_${uuidv4()}`;
+    const assignmentDoc = {
+      id: assignmentId,
       emergencyId,
       ambulanceId: ambulance.id,
-      ambulanceType: ambulance.type,
-      ambulancePriority: ambulance.priority,
-      ambulanceDistance: ambulance.distance || "unknown",
-      ambulanceEstimatedArrival: ambulance.estimatedArrival || "unknown",
       patientInfo: {
         name: patientName || "Unknown",
-        age: Number.isFinite(Number(patientAge)) ? Number(patientAge) : null,
+        age: Number.isFinite(Number(patientAge)) ? Number(patientAge) : "Unknown",
         bloodGroup: bloodGroup || "Unknown",
         emergencyType,
         severity,
         urgencyScore,
-        location: emergencyDoc.location,
-        additionalNotes: additionalNotes || null
+        location: emergencyDoc.location
       },
       hospitalInfo: {
         id: hospital.id,
@@ -137,12 +130,21 @@ const createEmergency = async (req, res) => {
         location: hospital.location || null,
         icuBeds: hospital.icuBeds || 0,
         erBeds: hospital.erBeds || 0,
-        specialty: emergencyType
+        specialty: emergencyType,
+        distance: hospital.distance
+      },
+      ambulanceInfo: {
+        id: ambulance.id,
+        type: ambulance.type,
+        priority: ambulance.priority,
+        distance: ambulance.distance || "unknown",
+        estimatedArrival: ambulance.estimatedArrival || "unknown"
       },
       status: "assigned",
-      assignedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
+      assignedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    console.log("[Firestore Write] ambulanceAssignments:", assignmentDoc);
+    await db.collection("ambulanceAssignments").doc(assignmentId).set(assignmentDoc);
 
     logger.log(`Emergency ${emergencyId} dispatched successfully`);
 

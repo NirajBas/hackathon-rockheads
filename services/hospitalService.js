@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require("uuid");
+const admin = require("firebase-admin");
 const db = require("../config/firebase");
 const logger = require("../utils/logger");
 
@@ -97,17 +98,34 @@ const selectBestHospital = async (severity, emergencyType, location) => {
   };
 };
 
-// Logs and persists an outbound hospital notification event (includes score + reason for dashboards).
+// Writes the exact notification structure consumed by hospital dashboard listeners.
 const notifyHospital = async (hospitalId, payload) => {
   ensureDb();
   const notificationId = `notif_${uuidv4()}`;
   const notification = {
     id: notificationId,
-    hospitalId,
-    ...payload,
-    createdAt: new Date().toISOString()
+    hospitalId: hospitalId || "hosp_001",
+    emergencyId: payload.emergencyId,
+    severity: payload.severity || "high",
+    emergencyType: payload.emergencyType || "trauma",
+    bloodGroup: payload.bloodGroup || "Unknown",
+    patientName: payload.patientName || "Unknown",
+    patientAge: Number.isFinite(Number(payload.patientAge)) ? Number(payload.patientAge) : "Unknown",
+    eta: payload.eta || "unknown",
+    ambulanceId: payload.ambulanceId || null,
+    ambulanceType: payload.ambulanceType || "unknown",
+    ambulancePriority: payload.ambulancePriority || "unknown",
+    ambulanceDistance: payload.ambulanceDistance || "unknown",
+    patientLocation: payload.patientLocation || null,
+    urgencyScore: Number.isFinite(Number(payload.urgencyScore)) ? Number(payload.urgencyScore) : null,
+    selectionReason: payload.selectionReason || "Hospital selected by distance and bed availability",
+    hospitalScore: Number.isFinite(Number(payload.hospitalScore)) ? Number(payload.hospitalScore) : null,
+    hospitalName: payload.hospitalName || "Unknown",
+    hospitalLocation: payload.hospitalLocation || null,
+    timestamp: admin.firestore.FieldValue.serverTimestamp()
   };
 
+  console.log("[Firestore Write] notifications:", notification);
   logger.log("Hospital notification payload:", notification);
 
   await db.collection("notifications").doc(notificationId).set(notification);

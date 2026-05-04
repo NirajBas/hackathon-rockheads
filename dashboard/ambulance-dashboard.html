@@ -56,7 +56,8 @@
       function renderAssignment(a){
         if(!a){document.getElementById("assignmentPanel").innerHTML='<div class="small">No active assignment.</div>'; document.getElementById("timeline").innerHTML=""; return;}
         const p=a.patientInfo||{}, h=a.hospitalInfo||{}, loc=p.location||{}, hLoc=h.location||{};
-        const type=a.ambulanceType==="108"?"p108":a.ambulanceType==="govt"?"govt":"priv";
+        const amb=a.ambulanceInfo||{};
+        const type=amb.type==="108"?"p108":amb.type==="govt"?"govt":"priv";
         document.getElementById("assignmentPanel").innerHTML=`
           <div class="grid">
             <div class="card">
@@ -76,6 +77,7 @@
             </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <div class="small">Ambulance: ${amb.id||a.ambulanceId||"—"} <span class="pill ${type}">${amb.type||"—"}</span> · ${amb.distance||"—"} · ETA ${amb.estimatedArrival||"—"}</div>
             <button class="btn btn-nav" id="btnNavPatient">🗺️ Navigate to Patient</button>
             <button class="btn btn-nav" id="btnNavHospital">🏥 Navigate to Hospital</button>
             <button class="btn btn-ok" id="btnPickedUp">✅ Picked Up Patient</button>
@@ -92,7 +94,8 @@
         const update={status,updatedAt:new Date().toISOString(),...extra};
         if(status==="picked_up") update.enRoutePatientAt=currentAssignment.enRoutePatientAt||new Date().toISOString();
         if(status==="completed") update.arrivingHospitalAt=currentAssignment.arrivingHospitalAt||new Date().toISOString();
-        await db.collection("ambulanceAssignments").doc(currentAssignment.emergencyId).set(update,{merge:true});
+        console.log("[Firestore Write] ambulanceAssignments status update:", { assignmentId: currentAssignment.id, ...update });
+        await db.collection("ambulanceAssignments").doc(currentAssignment.id).set(update,{merge:true});
       }
       db.collection("ambulanceAssignments").where("ambulanceId","==",AMBULANCE_ID).orderBy("assignedAt","desc").limit(1).onSnapshot((snap)=>{
         if(snap.empty){currentAssignment=null;renderAssignment(null);return;}
