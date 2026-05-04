@@ -161,8 +161,142 @@ const updateAvailability = async (req, res) => {
   }
 };
 
+const respondSpecialist = async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: "Firestore not configured" });
+    }
+    const {
+      requestId,
+      hospitalId,
+      emergencyId,
+      hasSpecialist,
+      specialistName,
+      specialty,
+      availableICUBeds,
+      availableERBeds
+    } = req.body;
+    if (!requestId || !hospitalId || !emergencyId) {
+      return res.status(400).json({ error: "requestId, hospitalId, emergencyId are required" });
+    }
+    if (!hasSpecialist) {
+      return res.status(200).json({ assigned: false, message: "No specialist declared. Request remains pending." });
+    }
+    if (!specialistName || !specialty) {
+      return res.status(400).json({ error: "specialistName and specialty are required" });
+    }
+
+    const requestRef = db.collection("hospitalRequests").doc(requestId);
+    const emergencyRef = db.collection("emergencies").doc(emergencyId);
+    const [requestSnap, emergencySnap] = await Promise.all([requestRef.get(), emergencyRef.get()]);
+    if (!requestSnap.exists) {
+      return res.status(404).json({ error: "Hospital request not found" });
+    }
+    if (!emergencySnap.exists) {
+      return res.status(404).json({ error: "Emergency not found" });
+    }
+
+    const emergency = emergencySnap.data();
+    const request = requestSnap.data();
+    const responsePayload = {
+      hasSpecialist: true,
+      specialistName,
+      specialty,
+      availableICUBeds: Number(availableICUBeds) || 0,
+      availableERBeds: Number(availableERBeds) || 0,
+      status: "responded",
+      respondedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    console.log("[Firestore Write] hospitalRequests update:", { requestId, ...responsePayload });
+    await requestRef.set(responsePayload, { merge: true });
+
+    if (emergency.assignedHospital) {
+      return res.status(200).json({ assigned: false, message: "Emergency already assigned to another hospital." });
+    }
+
+    const emergencyUpdate = {
+      assignedHospital: hospitalId,
+      status: "hospital_assigned",
+      assignmentReason: "Auto-assigned: specialist available",
+      updatedAt: new Date().toISOString()
+    };
+    console.log("[Firestore Write] emergencies specialist assignment:", { emergencyId, ...emergencyUpdate });
+    await emergencyRef.update(emergencyUpdate);
+
+    const hospitalSnap = await db.collection("hospitals").doc(hospitalId).get();
+    const hospital = hospitalSnap.exists ? hospitalSnap.data() : {};
+    await hospitalService.notifyHospital(hospitalId, {
+      emergencyId,
+      severity: emergency.severity,
+      emergencyType: emergency.emergencyType,
+      bloodGroup: emergency.bloodGroup,
+      patientName: emergency.patientName,
+      patientAge: emergency.patientAge,
+      eta: "pending ambulance routing",
+      ambulanceId: emergency.assignedAmbulance || null,
+      ambulanceType: "unknown",
+      ambulancePriority: "unknown",
+      ambulanceDistance: "unknown",
+      patientLocation: emergency.location || null,
+      urgencyScore: emergency.urgencyScore,
+      selectionReason: `Specialist ${specialistName} responded`,
+      hospitalName: hospital.name || request.hospitalName || "Unknown",
+      hospitalLocation: hospital.location || null
+    });
+
+    const assignmentsSnap = await db
+      .collection("ambulanceAssignments")
+      .where("emergencyId", "==", emergencyId)
+      .limit(1)
+      .get();
+    if (!assignmentsSnap.empty) {
+      const assignmentRef = assignmentsSnap.docs[0].ref;
+      const assignmentUpdate = {
+        "hospitalInfo.id": hospitalId,
+        "hospitalInfo.name": hospital.name || request.hospitalName || "Unknown",
+        "hospitalInfo.location": hospital.location || null,
+        "hospitalInfo.specialistName": specialistName,
+        "hospitalInfo.confirmedIcuBeds": Number(availableICUBeds) || 0,
+        "hospitalInfo.confirmedErBeds": Number(availableERBeds) || 0,
+        status: "hospital_confirmed",
+        updatedAt: new Date().toISOString()
+      };
+      console.log("[Firestore Write] ambulanceAssignments specialist update:", {
+        assignmentId: assignmentsSnap.docs[0].id,
+        ...assignmentUpdate
+      });
+      await assignmentRef.update(assignmentUpdate);
+    }
+
+    const responseId = `hr_${uuidv4()}`;
+    const hospitalResponse = {
+      id: responseId,
+      emergencyId,
+      hospitalId,
+      specialistName,
+      specialty,
+      icuBeds: Number(availableICUBeds) || 0,
+      erBeds: Number(availableERBeds) || 0,
+      status: "accepted",
+      respondedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    console.log("[Firestore Write] hospitalResponses specialist response:", hospitalResponse);
+    await db.collection("hospitalResponses").doc(responseId).set(hospitalResponse);
+
+    return res.status(200).json({
+      assigned: true,
+      message: "Specialist response accepted and hospital assigned.",
+      hospitalId,
+      emergencyId
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to process specialist response" });
+  }
+};
+
 module.exports = {
   getHospitals,
   selectHospital,
-  updateAvailability
+  updateAvailability,
+  respondSpecialist
 };

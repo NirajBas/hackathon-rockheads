@@ -21,6 +21,14 @@ router.post("/:id/update-availability", async (req, res) => {
   }
 });
 
+router.post("/respond-specialist", async (req, res) => {
+  try {
+    await hospitalController.respondSpecialist(req, res);
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Respond specialist route error" });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   try {
     if (!db) {

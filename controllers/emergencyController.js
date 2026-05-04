@@ -11,15 +11,58 @@ const estimateEta = (distanceKm) => {
   return Number.isFinite(mins) ? `${mins} mins` : "unknown";
 };
 
-// Orchestrates full emergency lifecycle from classification to notification.
+const KNOWN_CONDITIONS = new Set(["trauma", "cardiac"]);
+
+const resolvePatientLocation = (location) => {
+  if (
+    location &&
+    Number.isFinite(Number(location.lat)) &&
+    Number.isFinite(Number(location.lng))
+  ) {
+    return {
+      lat: Number(location.lat),
+      lng: Number(location.lng),
+      accuracy: Number(location.accuracy) || null,
+      updatedAt: location.updatedAt || new Date().toISOString()
+    };
+  }
+  return null;
+};
+
+const buildHospitalFromResponse = async (responseDoc, fallbackNearbyHospitals) => {
+  const hospitalSnap = await db.collection("hospitals").doc(responseDoc.hospitalId).get();
+  if (!hospitalSnap.exists) {
+    const fallback = fallbackNearbyHospitals.find((h) => h.id === responseDoc.hospitalId);
+    return {
+      id: responseDoc.hospitalId,
+      name: responseDoc.hospitalName || fallback?.name || "Unknown Hospital",
+      location: fallback?.location || null,
+      icuBeds: Number(responseDoc.availableICUBeds) || 0,
+      erBeds: Number(responseDoc.availableERBeds) || 0,
+      distance: Number(responseDoc.distanceKm) || fallback?.distanceKm || null,
+      selectionReason: "First specialist response received"
+    };
+  }
+  const hospital = hospitalSnap.data() || {};
+  const fallback = fallbackNearbyHospitals.find((h) => h.id === responseDoc.hospitalId);
+  return {
+    id: responseDoc.hospitalId,
+    name: hospital.name || responseDoc.hospitalName || "Unknown Hospital",
+    location: hospital.location || fallback?.location || null,
+    icuBeds: Number(responseDoc.availableICUBeds) || Number(hospital.icuBeds) || 0,
+    erBeds: Number(responseDoc.availableERBeds) || Number(hospital.erBeds) || 0,
+    distance: Number(responseDoc.distanceKm) || fallback?.distanceKm || null,
+    selectionReason: "First specialist response received"
+  };
+};
+
 const createEmergency = async (req, res) => {
   try {
     if (!db) {
       return res.status(500).json({ error: "Firestore not configured" });
     }
 
-    const { userId, trigger, bloodGroup, location, patientName, patientAge, additionalNotes, familyMembers } =
-      req.body;
+    const { userId, trigger, bloodGroup, location, patientName, patientAge } = req.body;
     if (!userId || !trigger) {
       return res.status(400).json({ error: "userId and trigger are required" });
     }
@@ -34,6 +77,8 @@ const createEmergency = async (req, res) => {
     } = classification;
 
     const emergencyId = `em_${uuidv4()}`;
+    const patientLocation = resolvePatientLocation(location);
+    const knownCondition = KNOWN_CONDITIONS.has(emergencyType);
 
     const emergencyDoc = {
       id: emergencyId,
@@ -45,44 +90,84 @@ const createEmergency = async (req, res) => {
       requiredBeds,
       urgencyScore,
       bloodGroup: bloodGroup || "Unknown",
-      patientName: patientName || null,
-      patientAge: Number.isFinite(Number(patientAge)) ? Number(patientAge) : null,
-      location:
-        location &&
-        Number.isFinite(Number(location.lat)) &&
-        Number.isFinite(Number(location.lng))
-          ? {
-              lat: Number(location.lat),
-              lng: Number(location.lng),
-              accuracy: Number(location.accuracy) || null,
-              updatedAt: location.updatedAt || new Date().toISOString()
-            }
-          : null,
-      additionalNotes: additionalNotes || null,
-      familyMembers: Array.isArray(familyMembers) ? familyMembers : [],
-      status: "pending_dispatch",
-      createdAt: new Date().toISOString()
+      patientName: patientName || "Unknown",
+      patientAge: Number.isFinite(Number(patientAge)) ? Number(patientAge) : "Unknown",
+      location: patientLocation,
+      status: knownCondition ? "awaiting_specialist_response" : "broadcasting_hospitals",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     console.log("[Firestore Write] emergencies:", emergencyDoc);
     await db.collection("emergencies").doc(emergencyId).set(emergencyDoc);
 
-    const ambulance = await dispatchService.findAvailableAmbulance(emergencyDoc.location);
+    const nearbyHospitals = await hospitalService.broadcastToNearbyHospitals(
+      emergencyId,
+      patientLocation,
+      emergencyType,
+      {
+        name: patientName,
+        age: patientAge,
+        bloodGroup,
+        severity,
+        urgencyScore
+      },
+      recommendedSpecialty
+    );
+
+    const ambulance = await dispatchService.findAvailableAmbulance(patientLocation);
     if (!ambulance) {
-      await db.collection("emergencies").doc(emergencyId).update({ status: "awaiting_ambulance" });
+      await db.collection("emergencies").doc(emergencyId).update({
+        status: "awaiting_ambulance",
+        nearbyHospitalsNotified: nearbyHospitals.length,
+        updatedAt: new Date().toISOString()
+      });
       return res.status(404).json({ error: "No available ambulance found" });
+    }
+    console.log("[Emergency Flow] Ambulance candidate selected:", {
+      emergencyId,
+      ambulanceId: ambulance.id,
+      type: ambulance.type
+    });
+
+    let selectedHospital = null;
+    let assignmentReason = "Auto-assigned: nearest hospital";
+    let specialistResponse = null;
+
+    if (knownCondition) {
+      specialistResponse = await hospitalService.waitForSpecialistResponse(emergencyId, 30000, 2000);
+      if (specialistResponse) {
+        selectedHospital = await buildHospitalFromResponse(specialistResponse, nearbyHospitals);
+        assignmentReason = "Auto-assigned: specialist available";
+      }
+    }
+
+    if (!selectedHospital) {
+      const nearest = nearbyHospitals[0] || null;
+      if (!nearest) {
+        await db.collection("emergencies").doc(emergencyId).update({
+          status: "awaiting_hospital",
+          assignedAmbulance: ambulance.id,
+          nearbyHospitalsNotified: 0,
+          updatedAt: new Date().toISOString()
+        });
+        return res.status(404).json({ error: "No nearby hospitals available within 20km" });
+      }
+      selectedHospital = {
+        id: nearest.id,
+        name: nearest.name,
+        location: nearest.location || null,
+        icuBeds: nearest.icuBeds || 0,
+        erBeds: nearest.erBeds || 0,
+        distance: nearest.distanceKm,
+        selectionReason: "Nearest hospital fallback"
+      };
     }
 
     await dispatchService.assignAmbulance(ambulance.id, emergencyId);
 
-    const hospital = await hospitalService.selectBestHospital(severity, emergencyType, emergencyDoc.location);
-    if (!hospital) {
-      await db.collection("emergencies").doc(emergencyId).update({ status: "awaiting_hospital" });
-      return res.status(404).json({ error: "No suitable hospital available" });
-    }
-
-    const eta = estimateEta(hospital.distance);
-    const notification = await hospitalService.notifyHospital(hospital.id, {
+    const eta = estimateEta(selectedHospital.distance);
+    const notification = await hospitalService.notifyHospital(selectedHospital.id, {
       emergencyId,
       severity,
       emergencyType,
@@ -91,24 +176,30 @@ const createEmergency = async (req, res) => {
       bloodGroup: bloodGroup || "Unknown",
       patientName: patientName || "Unknown",
       patientAge: Number.isFinite(Number(patientAge)) ? Number(patientAge) : "Unknown",
-      patientLocation: emergencyDoc.location,
+      patientLocation,
       ambulanceId: ambulance.id,
       ambulanceType: ambulance.type,
       ambulancePriority: ambulance.priority || "1st - 108 Government Emergency Service",
       ambulanceDistance: ambulance.distance || "unknown",
-      hospitalScore: hospital.score,
-      selectionReason: hospital.selectionReason || "Nearest trauma center",
-      hospitalName: hospital.name,
-      hospitalLocation: hospital.location
+      selectionReason:
+        assignmentReason === "Auto-assigned: specialist available"
+          ? `Specialist ${specialistResponse?.specialistName || "available"} responded first`
+          : selectedHospital.selectionReason || "Nearest hospital fallback",
+      hospitalName: selectedHospital.name,
+      hospitalLocation: selectedHospital.location
     });
 
-    await db.collection("emergencies").doc(emergencyId).update({
-      assignedHospital: hospital.id,
+    const emergencyUpdate = {
+      assignedHospital: selectedHospital.id,
       assignedAmbulance: ambulance.id,
       notificationId: notification.id,
       status: "dispatched",
+      assignmentReason,
+      nearbyHospitalsNotified: nearbyHospitals.length,
       updatedAt: new Date().toISOString()
-    });
+    };
+    console.log("[Firestore Write] emergencies update:", { emergencyId, ...emergencyUpdate });
+    await db.collection("emergencies").doc(emergencyId).update(emergencyUpdate);
 
     const assignmentId = `asg_${uuidv4()}`;
     const assignmentDoc = {
@@ -122,16 +213,17 @@ const createEmergency = async (req, res) => {
         emergencyType,
         severity,
         urgencyScore,
-        location: emergencyDoc.location
+        location: patientLocation
       },
       hospitalInfo: {
-        id: hospital.id,
-        name: hospital.name,
-        location: hospital.location || null,
-        icuBeds: hospital.icuBeds || 0,
-        erBeds: hospital.erBeds || 0,
+        id: selectedHospital.id,
+        name: selectedHospital.name,
+        location: selectedHospital.location || null,
+        icuBeds: selectedHospital.icuBeds || 0,
+        erBeds: selectedHospital.erBeds || 0,
+        specialistName: specialistResponse?.specialistName || null,
         specialty: emergencyType,
-        distance: hospital.distance
+        distance: selectedHospital.distance || null
       },
       ambulanceInfo: {
         id: ambulance.id,
@@ -141,10 +233,26 @@ const createEmergency = async (req, res) => {
         estimatedArrival: ambulance.estimatedArrival || "unknown"
       },
       status: "assigned",
-      assignedAt: admin.firestore.FieldValue.serverTimestamp()
+      assignmentReason,
+      assignedAt: admin.firestore.FieldValue.serverTimestamp(),
+      statusHistory: [
+        {
+          status: "assigned",
+          at: new Date().toISOString()
+        }
+      ]
     };
     console.log("[Firestore Write] ambulanceAssignments:", assignmentDoc);
     await db.collection("ambulanceAssignments").doc(assignmentId).set(assignmentDoc);
+    const ambulanceLocationDoc = {
+      ambulanceId: ambulance.id,
+      emergencyId,
+      lat: Number(ambulance.location?.lat) || null,
+      lng: Number(ambulance.location?.lng) || null,
+      updatedAt: new Date().toISOString()
+    };
+    console.log("[Firestore Write] ambulanceLocations:", ambulanceLocationDoc);
+    await db.collection("ambulanceLocations").doc(ambulance.id).set(ambulanceLocationDoc, { merge: true });
 
     logger.log(`Emergency ${emergencyId} dispatched successfully`);
 
@@ -153,8 +261,7 @@ const createEmergency = async (req, res) => {
       severity,
       urgencyScore,
       type: emergencyType,
-      recommendedSpecialty,
-      requiredBeds,
+      requiredSpecialty: recommendedSpecialty,
       ambulance: {
         id: ambulance.id,
         type: ambulance.type,
@@ -163,18 +270,21 @@ const createEmergency = async (req, res) => {
         estimatedArrival: ambulance.estimatedArrival || "unknown"
       },
       hospital: {
-        id: hospital.id,
-        name: hospital.name,
+        id: selectedHospital.id,
+        name: selectedHospital.name,
         eta,
-        icuBeds: hospital.icuBeds,
-        erBeds: hospital.erBeds,
+        icuBeds: selectedHospital.icuBeds,
+        erBeds: selectedHospital.erBeds,
         specialty: emergencyType,
-        selectionReason: hospital.selectionReason,
-        score: hospital.score,
-        distance: Number.isFinite(Number(hospital.distance)) ? `${Number(hospital.distance).toFixed(1)} km` : "unknown",
-        location: hospital.location || null
+        selectionReason: selectedHospital.selectionReason,
+        assignmentReason,
+        distance: Number.isFinite(Number(selectedHospital.distance))
+          ? `${Number(selectedHospital.distance).toFixed(2)} km`
+          : "unknown",
+        location: selectedHospital.location || null
       },
-      patientLocation: emergencyDoc.location,
+      nearbyHospitalsNotified: nearbyHospitals.length,
+      patientLocation,
       status: "dispatched"
     });
   } catch (error) {
@@ -202,7 +312,32 @@ const getEmergencyById = async (req, res) => {
   }
 };
 
+const getEmergencyStatus = async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: "Firestore not configured" });
+    }
+    const { id } = req.params;
+    const snapshot = await db.collection("emergencies").doc(id).get();
+    if (!snapshot.exists) {
+      return res.status(404).json({ error: "Emergency not found" });
+    }
+    const emergency = snapshot.data();
+    return res.status(200).json({
+      emergencyId: emergency.id,
+      status: emergency.status,
+      assignedHospital: emergency.assignedHospital || null,
+      assignedAmbulance: emergency.assignedAmbulance || null,
+      assignmentReason: emergency.assignmentReason || null,
+      updatedAt: emergency.updatedAt || null
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to fetch emergency status" });
+  }
+};
+
 module.exports = {
   createEmergency,
-  getEmergencyById
+  getEmergencyById,
+  getEmergencyStatus
 };

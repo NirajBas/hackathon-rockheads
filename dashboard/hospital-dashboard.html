@@ -1,223 +1,95 @@
 ﻿<!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hospital Emergency Dashboard</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
-  <style>
-    :root{--bg:#0a0a0a;--card:#111;--border:#222;--text:#e8e8e8;--muted:#888;--red:#ff3333;--green:#00ff88;--orange:#ff9900;--blue:#0088ff}
-    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
-    .banner{padding:16px;text-align:center;background:linear-gradient(90deg,#5c0000,var(--red));font-weight:700}
-    .wrap{max-width:1050px;margin:0 auto;padding:18px 14px 36px}.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px}
-    .cards{display:grid;gap:12px}.pill{display:inline-block;padding:2px 8px;border-radius:8px;font-size:.72rem;font-weight:700}
-    .p108{background:rgba(0,136,255,.2);color:var(--blue)}.govt{background:#2a2a2a;color:#ccc}.priv{background:#2a2a2a;color:#aaa}
-    .line{margin:6px 0}.small{font-size:.82rem;color:var(--muted)}.empty{border:1px dashed var(--border);padding:16px;border-radius:10px;color:var(--muted);text-align:center}
-    label{display:block;font-size:.8rem;color:var(--muted);margin:0 0 4px}input,select{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:#0d0d0d;color:var(--text);margin-bottom:10px}
-    .btn{padding:12px 14px;border:none;border-radius:10px;background:var(--red);color:#fff;font-weight:700;width:100%;cursor:pointer}.ok{color:var(--green)}.err{color:var(--red)}.hidden{display:none}
-    @media (min-width:900px){.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
-  </style>
-</head>
-<body>
-  <div class="banner">🏥 Incoming Emergency — Hospital Console</div>
-  <div class="wrap">
-    <p class="small">Hospital: <strong id="hospitalNameLabel"></strong> (ID: <strong id="hospitalIdLabel"></strong>)</p>
-    <p class="small" id="hospitalMetaLabel">Specialty: — | ICU Beds: — | ER Beds: —</p>
-    <section class="card"><h3 style="margin:0 0 10px">Live incoming alerts</h3><div id="cards" class="cards"><div class="empty">Waiting for emergency notifications…</div></div></section>
-    <section class="card">
-      <h3 style="margin:0 0 10px">Hospital response</h3>
-      <form id="responseForm">
-        <div class="grid2"><div><label for="fEmergencyId">Emergency ID</label><input id="fEmergencyId" readonly /></div><div><label for="fHospitalId">Hospital ID</label><input id="fHospitalId" readonly /></div></div>
-        <div class="grid2"><div><label for="fIcu">Available ICU beds</label><input id="fIcu" type="number" min="0" value="3" required /></div><div><label for="fEr">Available ER beds</label><input id="fEr" type="number" min="0" value="2" required /></div></div>
-        <div class="grid2"><div><label for="fSpecialist">Specialist on duty</label><input id="fSpecialist" required /></div><div><label for="fSpecialty">Specialty</label><select id="fSpecialty"><option value="trauma">trauma</option><option value="cardiac">cardiac</option><option value="accident">accident</option></select></div></div>
-        <div style="display:flex;gap:14px;margin:6px 0 12px"><label><input type="radio" name="fStatus" value="accepted" checked /> Accept</label><label><input type="radio" name="fStatus" value="rejected" /> Reject</label></div>
-        <button class="btn" id="btnSubmitResponse">📋 Submit Response</button>
-      </form>
-      <p id="formSuccess" class="ok hidden"></p><p id="formError" class="err hidden"></p>
-    </section>
-    <section class="card"><h3 style="margin:0 0 10px">Response history</h3><div id="historyList"><div class="empty">No responses yet.</div></div></section>
-  </div>
-  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-  <script>
-    const firebaseConfig = { apiKey: "AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50", authDomain: "emergency-response-8701b.firebaseapp.com", projectId: "emergency-response-8701b", storageBucket: "emergency-response-8701b.firebasestorage.app", messagingSenderId: "558477100061", appId: "1:558477100061:web:074e110297b131b86172f4" };
-    const params = new URLSearchParams(window.location.search);
-    const HOSPITAL_ID = params.get("id") || "hosp_001";
-    const API_BASE = "http://localhost:3000";
-    document.getElementById("hospitalIdLabel").textContent = HOSPITAL_ID;
-    document.getElementById("hospitalNameLabel").textContent = "Loading...";
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-    const cardsEl = document.getElementById("cards");
-    const historyList = document.getElementById("historyList");
-    const form = document.getElementById("responseForm");
-    const formSuccess = document.getElementById("formSuccess");
-    const formError = document.getElementById("formError");
-    const btnSubmit = document.getElementById("btnSubmitResponse");
-    const submittedEmergencyIds = new Set();
-    let latestForForm = null;
-    console.log("[Hospital Dashboard] Loading hospital:", HOSPITAL_ID);
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hospital Specialist Console</title>
+    <style>
+      body { margin: 0; font-family: Arial, sans-serif; background: #0b0b0b; color: #fff; }
+      .wrap { max-width: 1000px; margin: 0 auto; padding: 16px; }
+      .card { background: #151515; border: 1px solid #333; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+      .meta { color: #bbb; font-size: 13px; }
+      .urgent { border-color: #ff3b30; box-shadow: 0 0 14px rgba(255,59,48,.25); }
+      .btn { background: #00c853; color: #011; border: 0; border-radius: 8px; padding: 10px 12px; font-weight: 700; cursor: pointer; width: 100%; }
+      input { width: 100%; padding: 9px; border-radius: 7px; border: 1px solid #444; background: #0f0f0f; color: #fff; margin-top: 6px; margin-bottom: 10px; }
+      .empty { color: #9a9a9a; padding: 12px; border: 1px dashed #333; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h2 id="title">🏥 Loading hospital...</h2>
+        <div class="meta" id="hospitalMeta"></div>
+      </div>
+      <div class="card">
+        <h3>🚨 Specialist Requests</h3>
+        <div id="requests"></div>
+      </div>
+      <div class="card">
+        <h3>✅ Confirmed Assignments</h3>
+        <div id="confirmed"></div>
+      </div>
+    </div>
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+    <script>
+      const firebaseConfig = { apiKey: "AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50", authDomain: "emergency-response-8701b.firebaseapp.com", projectId: "emergency-response-8701b", storageBucket: "emergency-response-8701b.firebasestorage.app", messagingSenderId: "558477100061", appId: "1:558477100061:web:074e110297b131b86172f4" };
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.firestore();
+      const API_BASE = "http://localhost:3000";
+      const HOSPITAL_ID = new URLSearchParams(window.location.search).get("id") || "hosp_001";
+      console.log("[Hospital Dashboard] Loading hospital:", HOSPITAL_ID);
 
-    db.collection("hospitals")
-      .doc(HOSPITAL_ID)
-      .get()
-      .then((doc) => {
-        if (!doc.exists) {
-          document.getElementById("hospitalNameLabel").textContent = "Unknown Hospital";
-          document.getElementById("hospitalMetaLabel").textContent = "Specialty: — | ICU Beds: — | ER Beds: —";
-          return;
-        }
-        const data = doc.data() || {};
-        const specialties = Array.isArray(data.specialties) ? data.specialties.join(", ") : "General";
-        document.getElementById("hospitalNameLabel").textContent = data.name || HOSPITAL_ID;
-        document.getElementById("hospitalMetaLabel").textContent = `Specialty: ${specialties} | ICU Beds: ${
-          data.icuBeds ?? "—"
-        } | ER Beds: ${data.erBeds ?? "—"}`;
-        console.log("[Hospital Dashboard] Loaded hospital details:", { id: HOSPITAL_ID, ...data });
-      })
-      .catch((error) => {
-        console.error("[Hospital Dashboard] Failed to load hospital details:", error);
-        document.getElementById("hospitalNameLabel").textContent = HOSPITAL_ID;
+      db.collection("hospitals").doc(HOSPITAL_ID).get().then((doc) => {
+        if (!doc.exists) return;
+        const h = doc.data() || {};
+        document.getElementById("title").textContent = `🏥 ${h.name || HOSPITAL_ID} Dashboard`;
+        document.getElementById("hospitalMeta").textContent = `Specialty: ${(h.specialties || []).join(", ") || "General"} | ICU Beds: ${h.icuBeds ?? "-"} | ER Beds: ${h.erBeds ?? "-"}`;
       });
 
-    const fmt = (ts) => {
-      if (!ts) return "—";
-      const d = ts.toDate ? ts.toDate() : new Date(ts);
-      return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
-    };
-    const ambPill = (t) =>
-      t === "108"
-        ? '<span class="pill p108">108</span>'
-        : t === "govt"
-          ? '<span class="pill govt">Govt</span>'
-          : '<span class="pill priv">Private</span>';
-    const sevClass = (s) => (s === "high" ? "#ff3333" : s === "medium" ? "#ff9900" : "#00ff88");
-    const ago = (iso) => {
-      if (!iso) return "—";
-      const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-      return `${sec}s ago`;
-    };
-    const patientMapsLink = (loc) =>
-      loc && Number.isFinite(+loc.lat) && Number.isFinite(+loc.lng)
-        ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}`
-        : "#";
+      const requestsEl = document.getElementById("requests");
+      const confirmedEl = document.getElementById("confirmed");
 
-    function renderCard(data) {
-      const loc = data.patientLocation || {};
-      const hospLoc = data.hospitalLocation || {};
-      return `<div class="card"><div class="line"><strong>Emergency</strong> ${data.emergencyType || "N/A"} <span style="color:${sevClass(data.severity)}">${(data.severity || "").toUpperCase()}</span></div><div class="line"><strong>Patient</strong>: ${data.patientName || "Unknown"} (${data.patientAge ?? "—"}) · Blood ${data.bloodGroup || "Unknown"}</div><div class="line"><strong>Patient live location</strong>: ${loc.lat ?? "—"}, ${loc.lng ?? "—"} · Last updated: ${ago(loc.updatedAt)}</div><div class="line"><a href="${patientMapsLink(loc)}" target="_blank" rel="noreferrer">Open patient in Google Maps</a></div><div class="line"><strong>Ambulance</strong>: ${data.ambulanceId || "—"} (${data.ambulanceType || "—"}) ${ambPill(data.ambulanceType)} · ${data.ambulanceDistance || "—"} · ETA to patient ${data.eta || "—"}</div><div class="line"><strong>Hospital match</strong>: ${data.hospitalName || "—"} · ${data.selectionReason || "—"}</div><div class="line small">Hospital coordinates: ${hospLoc.lat ?? "—"}, ${hospLoc.lng ?? "—"} · Emergency ID: ${data.emergencyId || "—"}</div></div>`;
-    }
-
-    db.collection("notifications").where("hospitalId", "==", HOSPITAL_ID).onSnapshot(
-      (snap) => {
-        const all = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .sort(
-            (a, b) =>
-              (b.timestamp?.toMillis?.() || new Date(b.createdAt || 0).getTime()) -
-              (a.timestamp?.toMillis?.() || new Date(a.createdAt || 0).getTime())
-          );
-        if (!all.length) {
-          cardsEl.innerHTML = '<div class="empty">No alerts for this hospital yet.</div>';
-          latestForForm = null;
-          syncForm();
-          return;
-        }
-        cardsEl.innerHTML = all.map(renderCard).join("");
-        latestForForm = all[0];
-        syncForm();
-      },
-      (e) => (cardsEl.innerHTML = `<div class="empty">Failed to load notifications: ${e.message}</div>`)
-    );
-
-    function syncForm() {
-      document.getElementById("fEmergencyId").value = latestForForm?.emergencyId || "";
-      document.getElementById("fHospitalId").value = HOSPITAL_ID;
-      const emId = latestForForm?.emergencyId;
-      btnSubmit.disabled = !(emId && !submittedEmergencyIds.has(emId));
-    }
-
-    db.collection("hospitalResponses").where("hospitalId", "==", HOSPITAL_ID).onSnapshot((snap) => {
-      const rows = [];
-      snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
-      rows.sort((a, b) => (b.respondedAt?.toMillis?.() || 0) - (a.respondedAt?.toMillis?.() || 0));
-      historyList.innerHTML = rows.length
-        ? rows
-            .map(
-              (r) =>
-                `<div class="card"><strong>${r.emergencyId}</strong> · <span class="${r.status === "accepted" ? "ok" : "small"}">${r.status}</span><div class="small">${r.specialistName} · ${r.specialty} · ${fmt(r.respondedAt)}</div></div>`
-            )
-            .join("")
-        : '<div class="empty">No responses yet.</div>';
-    });
-
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      formError.classList.add("hidden");
-      formSuccess.classList.add("hidden");
-      const emergencyId = document.getElementById("fEmergencyId").value.trim();
-      if (!emergencyId) {
-        formError.textContent = "No emergency loaded yet.";
-        formError.classList.remove("hidden");
-        return;
+      function reqCard(r) {
+        return `
+          <div class="card urgent">
+            <div><strong>Emergency:</strong> ${r.patientInfo?.emergencyType || "unknown"} | Urgency ${r.patientInfo?.urgencyScore ?? "-"}/10</div>
+            <div><strong>Patient:</strong> ${r.patientInfo?.name || "Unknown"}, ${r.patientInfo?.age ?? "-"} yrs, ${r.patientInfo?.bloodGroup || "-"}</div>
+            <div><strong>Distance:</strong> ${r.distanceKm ?? "-"} km</div>
+            <div class="meta">Required specialist: ${r.requiredSpecialty || "general"}</div>
+            <label>Specialist Name</label><input id="sp_${r.id}" />
+            <label>ICU Beds</label><input id="icu_${r.id}" type="number" value="3" />
+            <label>ER Beds</label><input id="er_${r.id}" type="number" value="5" />
+            <button class="btn" onclick="respond('${r.id}','${r.emergencyId}','${r.requiredSpecialty || "general"}')">✅ YES - SPECIALIST AVAILABLE</button>
+            <div class="meta" id="st_${r.id}" style="margin-top:8px"></div>
+          </div>
+        `;
       }
-      const payload = {
-        emergencyId,
-        icuBeds: Number(document.getElementById("fIcu").value),
-        erBeds: Number(document.getElementById("fEr").value),
-        specialistName: document.getElementById("fSpecialist").value.trim(),
-        specialty: document.getElementById("fSpecialty").value,
-        status: form.querySelector('input[name="fStatus"]:checked')?.value
-      };
-      if (!payload.specialistName) {
-        formError.textContent = "Please enter specialist name.";
-        formError.classList.remove("hidden");
-        return;
-      }
-      btnSubmit.disabled = true;
-      try {
-        const res = await fetch(`${API_BASE}/hospitals/${encodeURIComponent(HOSPITAL_ID)}/update-availability`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
+
+      window.respond = async (requestId, emergencyId, specialty) => {
+        const specialistName = document.getElementById(`sp_${requestId}`).value.trim();
+        const availableICUBeds = Number(document.getElementById(`icu_${requestId}`).value);
+        const availableERBeds = Number(document.getElementById(`er_${requestId}`).value);
+        if (!specialistName) return;
+        document.getElementById(`st_${requestId}`).textContent = "⏳ Waiting for assignment...";
+        const payload = { requestId, hospitalId: HOSPITAL_ID, emergencyId, hasSpecialist: true, specialistName, specialty, availableICUBeds, availableERBeds };
+        console.log("[Hospital Dashboard] respond-specialist payload:", payload);
+        const res = await fetch(`${API_BASE}/hospitals/respond-specialist`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        document.getElementById(`st_${requestId}`).textContent = data.message || "Response submitted";
+      };
 
-        if (payload.status === "accepted" && latestForForm) {
-          const assignmentSnap = await db
-            .collection("ambulanceAssignments")
-            .where("emergencyId", "==", emergencyId)
-            .get();
-          const updates = [];
-          assignmentSnap.forEach((doc) => {
-            const updatePayload = {
-              "hospitalInfo.specialistName": payload.specialistName,
-              "hospitalInfo.confirmedIcuBeds": payload.icuBeds,
-              "hospitalInfo.confirmedErBeds": payload.erBeds,
-              status: "hospital_confirmed",
-              updatedAt: new Date().toISOString()
-            };
-            console.log("[Firestore Write] ambulanceAssignments update:", {
-              assignmentId: doc.id,
-              ...updatePayload
-            });
-            updates.push(doc.ref.update(updatePayload));
-          });
-          await Promise.all(updates);
-        }
+      db.collection("hospitalRequests").where("hospitalId", "==", HOSPITAL_ID).where("status", "==", "pending").onSnapshot((snap) => {
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        requestsEl.innerHTML = list.length ? list.map(reqCard).join("") : '<div class="empty">No pending specialist requests.</div>';
+      });
 
-        submittedEmergencyIds.add(emergencyId);
-        formSuccess.textContent = "Response recorded successfully.";
-        formSuccess.classList.remove("hidden");
-      } catch (err) {
-        formError.textContent = err.message || "Submit failed.";
-        formError.classList.remove("hidden");
-        btnSubmit.disabled = false;
-      }
-    });
-  </script>
-</body>
+      db.collection("notifications").where("hospitalId", "==", HOSPITAL_ID).onSnapshot((snap) => {
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        confirmedEl.innerHTML = list.length
+          ? list.map((n) => `<div class="card"><div><strong>Prepare for patient arrival</strong></div><div>${n.patientName || "Unknown"} (${n.patientAge ?? "-"}) • ${n.bloodGroup || "-"}</div><div>${n.emergencyType || "-"} ${n.severity || "-"} • Ambulance ${n.ambulanceId || "-"}</div><div>ETA: ${n.eta || "-"} • Specialist: ${n.specialistName || "Assigned"}</div><a class="meta" href="https://www.google.com/maps?q=${n.patientLocation?.lat || 0},${n.patientLocation?.lng || 0}" target="_blank" rel="noreferrer">Open patient location</a></div>`).join("")
+          : '<div class="empty">No confirmed assignments yet.</div>';
+      });
+    </script>
+  </body>
 </html>

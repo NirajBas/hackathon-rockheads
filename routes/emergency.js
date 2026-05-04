@@ -11,6 +11,14 @@ router.post("/create", async (req, res) => {
   }
 });
 
+router.get("/:id/status", async (req, res) => {
+  try {
+    await emergencyController.getEmergencyStatus(req, res);
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Get emergency status route error" });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   try {
     await emergencyController.getEmergencyById(req, res);

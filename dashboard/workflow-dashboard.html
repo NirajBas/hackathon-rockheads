@@ -4,91 +4,62 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Emergency Workflow Monitor</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
     <style>
-      :root{--bg:#0a0a0a;--card:#111;--border:#222;--text:#eee;--muted:#888;--ok:#00ff88;--act:#ffd166;--pend:#666;--blue:#6c7bff;--purple:#a06bff}
-      *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
-      header{padding:14px 16px;background:linear-gradient(90deg,#1a1f5f,#4b2f8a);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-      .wrap{max-width:1100px;margin:0 auto;padding:16px}
-      .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px}
-      .step{border-left:4px solid var(--pend)} .done{border-left-color:var(--ok)} .active{border-left-color:var(--act)}
-      .meta{color:var(--muted);font-size:.86rem} .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
-      .stat{background:#0f0f15;border:1px solid var(--border);border-radius:10px;padding:10px}
+      body { margin: 0; font-family: Arial, sans-serif; background: #0b0b0b; color: #fff; }
+      .wrap { max-width: 1000px; margin: 0 auto; padding: 16px; }
+      .card { background: #151515; border: 1px solid #333; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+      .meta { color: #bbb; font-size: 13px; }
     </style>
   </head>
   <body>
-    <header>
-      <h2 style="margin:0">📊 Emergency Workflow Monitor</h2>
-      <div id="clock"></div>
-    </header>
-    <main class="wrap">
-      <section id="timeline"></section>
-      <section class="card">
-        <h3 style="margin:0 0 8px">Live Stats</h3>
-        <div class="stat-grid">
-          <div class="stat"><div class="meta">Total emergencies today</div><div id="sTotal">0</div></div>
-          <div class="stat"><div class="meta">Average response time</div><div id="sAvg">—</div></div>
-          <div class="stat"><div class="meta">108 / govt / private</div><div id="sTypes">0 / 0 / 0</div></div>
-          <div class="stat"><div class="meta">Most common emergency type</div><div id="sCommon">—</div></div>
-        </div>
-      </section>
-    </main>
+    <div class="wrap">
+      <div class="card"><h2>📊 Emergency Workflow Monitor</h2><div class="meta" id="meta"></div></div>
+      <div id="timeline"></div>
+    </div>
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
     <script>
-      // Firebase config placeholder
       const firebaseConfig={apiKey:"AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50",authDomain:"emergency-response-8701b.firebaseapp.com",projectId:"emergency-response-8701b",storageBucket:"emergency-response-8701b.firebasestorage.app",messagingSenderId:"558477100061",appId:"1:558477100061:web:074e110297b131b86172f4"};
       firebase.initializeApp(firebaseConfig); const db=firebase.firestore();
       const params=new URLSearchParams(window.location.search);
       const FILTER_EMERGENCY_ID=params.get("id");
-      const timelineEl=document.getElementById("timeline"); let emergencies=[], notifications=[], assignments=[], responses=[];
+      const timelineEl=document.getElementById("timeline"); let emergencies=[], requests=[], assignments=[], responses=[];
       console.log("[Workflow Dashboard] Filter emergency:", FILTER_EMERGENCY_ID||"latest");
-      setInterval(()=>document.getElementById("clock").textContent=new Date().toLocaleString(),1000);
-      const fmt=(t)=>t?new Date(t).toLocaleString():"—";
-      function card(title, body, cls){ return `<section class="card step ${cls}"><h3 style="margin:0 0 6px">${title}</h3><div>${body}</div></section>`; }
-      function statusCls(done,active){ return done?"done":active?"active":""; }
+      const fmt=(t)=>{ if(!t) return "—"; const d=t.toDate?t.toDate():new Date(t); return Number.isNaN(d.getTime())?"—":d.toLocaleString(); };
+      function card(title, body){ return `<section class="card"><h3 style="margin:0 0 6px">${title}</h3><div>${body}</div></section>`; }
       function render(){
-        if(!emergencies.length){timelineEl.innerHTML='<section class="card"><div class="meta">Waiting for emergency stream…</div></section>'; return;}
-        const currentEmergency = FILTER_EMERGENCY_ID
-          ? emergencies.find((item)=>item.id===FILTER_EMERGENCY_ID)
-          : emergencies[0];
-        if(!currentEmergency){timelineEl.innerHTML='<section class="card"><div class="meta">No workflow found for selected emergency.</div></section>'; return;}
-        const e=currentEmergency; const n=notifications.find(x=>x.emergencyId===e.id)||{}; const a=assignments.find(x=>x.emergencyId===e.id)||{}; const r=responses.find(x=>x.emergencyId===e.id)||{}; const amb=a.ambulanceInfo||{};
-        const blocks=[
-          card("Step 1 - Triggered",`Emergency: ${e.id||"—"} · Patient: ${e.patientName||e.userId||"Unknown"} · Severity: ${e.severity||"—"} · Timestamp: ${fmt(e.createdAt)}`,statusCls(true,false)),
-          card("Step 2 — AI Classification",`Severity: ${e.severity||"—"} · Type: ${e.emergencyType||"—"} · Urgency: ${e.urgencyScore??"—"}`,statusCls(!!e.urgencyScore,!a.ambulanceId)),
-          card("Step 3 — Ambulance Dispatched",`Ambulance: ${a.ambulanceId||amb.id||e.assignedAmbulance||"—"} · Type: ${amb.type||n.ambulanceType||"—"} · Distance: ${amb.distance||n.ambulanceDistance||"—"} · ETA: ${amb.estimatedArrival||n.eta||"—"}`,statusCls(!!(a.ambulanceId||amb.id||e.assignedAmbulance),!n.hospitalId)),
-          card("Step 4 — Hospital Notified",`Hospital: ${n.hospitalId||e.assignedHospital||a.hospitalInfo?.id||"—"} (${n.hospitalName||a.hospitalInfo?.name||"—"}) · Reason: ${n.selectionReason||"—"}`,statusCls(!!n.hospitalId, !r.id)),
-          card("Step 5 — Hospital Accepted",`Specialist: ${r.specialistName||a.hospitalInfo?.specialistName||"—"} · Confirmed ICU: ${r.icuBeds??a.hospitalInfo?.confirmedIcuBeds??"—"} · Responded: ${fmt(r.respondedAt?.toDate?.()||r.respondedAt)}`,statusCls(r.status==="accepted",a.status==="hospital_confirmed")),
-          card("Step 6 — Patient Picked Up",`Status: ${a.status==="picked_up"?"Picked Up ✅":"Pending"} · Timestamp: ${fmt(a.pickedUpAt)}`,statusCls(a.status==="picked_up",a.status==="hospital_confirmed")),
-          card("Step 7 — Arrived at Hospital",`Status: ${a.status==="completed"?"Completed ✅":"Pending"} · Total response time: ${e.createdAt&&a.completedAt?Math.round((new Date(a.completedAt)-new Date(e.createdAt))/60000)+" mins":"—"}`,statusCls(a.status==="completed",a.status==="picked_up"))
-        ];
-        timelineEl.innerHTML=blocks.join("");
-        computeStats();
-      }
-      function computeStats(){
-        const today=emergencies.filter(e=>new Date(e.createdAt).toDateString()===new Date().toDateString());
-        document.getElementById("sTotal").textContent=today.length;
-        const done=assignments.filter(a=>a.completedAt); const mins=done.map(a=>{ const e=emergencies.find(x=>x.id===a.emergencyId); return e&&e.createdAt?(new Date(a.completedAt)-new Date(e.createdAt))/60000:null; }).filter(n=>n&&n>0);
-        document.getElementById("sAvg").textContent=mins.length?`${Math.round(mins.reduce((p,c)=>p+c,0)/mins.length)} mins`:"—";
-        const typeCount={108:0,govt:0,private:0}; assignments.forEach(a=>{const t=a.ambulanceInfo?.type||a.ambulanceType; if(typeCount[t]!=null) typeCount[t]++;});
-        document.getElementById("sTypes").textContent=`${typeCount["108"]} / ${typeCount.govt} / ${typeCount.private}`;
-        const emType={}; emergencies.forEach(e=>{const k=e.emergencyType||"unknown"; emType[k]=(emType[k]||0)+1;});
-        const common=Object.entries(emType).sort((a,b)=>b[1]-a[1])[0]?.[0]||"—"; document.getElementById("sCommon").textContent=common;
+        if(!emergencies.length){timelineEl.innerHTML='<section class="card"><div class="meta">Waiting for emergency stream…</div></section>';return;}
+        const e=FILTER_EMERGENCY_ID?emergencies.find(x=>x.id===FILTER_EMERGENCY_ID):emergencies[0];
+        if(!e){timelineEl.innerHTML='<section class="card"><div class="meta">No workflow found for selected emergency.</div></section>';return;}
+        const reqs=requests.filter(r=>r.emergencyId===e.id);
+        const firstSpecialist=reqs.filter(r=>r.hasSpecialist&&r.status==="responded").sort((a,b)=>(a.respondedAt?.toMillis?.()||0)-(b.respondedAt?.toMillis?.()||0))[0];
+        const a=assignments.find(x=>x.emergencyId===e.id)||{};
+        const r=responses.find(x=>x.emergencyId===e.id)||{};
+        const triggerTime=new Date(e.createdAt).getTime();
+        const specialistSecs=firstSpecialist?.respondedAt?.toMillis?Math.max(0,Math.round((firstSpecialist.respondedAt.toMillis()-triggerTime)/1000)):null;
+        document.getElementById("meta").textContent=`Emergency ${e.id} | ${e.patientName||"Unknown"} | ${e.emergencyType||"-"} | ${e.severity||"-"}`;
+        timelineEl.innerHTML = [
+          card("Step 1 - Emergency Triggered", `${fmt(e.createdAt)} | ${e.patientName || e.userId || "Unknown"} | Severity ${e.severity || "-"}`),
+          card("Step 2 - Hospitals Notified", `${reqs.length} hospitals notified simultaneously.<br>${reqs.map((x)=>`${x.hospitalName} (${x.distanceKm ?? "-"} km)`).join("<br>") || "No hospital requests yet"}`),
+          card("Step 3 - Specialist Found", firstSpecialist ? `${firstSpecialist.specialistName || "Specialist"} at ${firstSpecialist.hospitalName} responded in ${specialistSecs ?? "-"} seconds` : "Waiting for specialist response"),
+          card("Step 4 - Hospital Auto Assigned", `${e.assignedHospital || "-"} | ${e.assignmentReason || "-"}`),
+          card("Step 5 - Ambulance Dispatched", `${a.ambulanceId || e.assignedAmbulance || "-"} | ${a.ambulanceInfo?.type || "-"} | ${a.ambulanceInfo?.distance || "-"} | ETA ${a.ambulanceInfo?.estimatedArrival || "-"}`),
+          card("Step 6 - Ambulance Accepted", a.status === "accepted" || a.status === "en_route_patient" || a.status === "picked_up" || a.status === "completed" ? `Accepted at ${fmt(a.updatedAt)}` : "Pending"),
+          card("Step 7 - Patient Picked Up", a.status === "picked_up" || a.status === "arriving_hospital" || a.status === "completed" ? `Picked up at ${fmt(a.pickedUpAt || a.updatedAt)}` : "Pending"),
+          card("Step 8 - Arrived at Hospital", a.status === "completed" ? `Completed at ${fmt(a.completedAt || a.updatedAt)}` : "Pending")
+        ].join("");
       }
       if(FILTER_EMERGENCY_ID){
         db.collection("emergencies").doc(FILTER_EMERGENCY_ID).onSnapshot((doc)=>{
           emergencies=doc.exists?[{id:doc.id,...doc.data()}]:[];
           render();
         });
-        db.collection("notifications").where("emergencyId","==",FILTER_EMERGENCY_ID).onSnapshot(s=>{notifications=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+        db.collection("hospitalRequests").where("emergencyId","==",FILTER_EMERGENCY_ID).onSnapshot(s=>{requests=s.docs.map(d=>({id:d.id,...d.data()})); render();});
         db.collection("ambulanceAssignments").where("emergencyId","==",FILTER_EMERGENCY_ID).onSnapshot(s=>{assignments=s.docs.map(d=>({id:d.id,...d.data()})); render();});
         db.collection("hospitalResponses").where("emergencyId","==",FILTER_EMERGENCY_ID).onSnapshot(s=>{responses=s.docs.map(d=>({id:d.id,...d.data()})); render();});
       }else{
         db.collection("emergencies").orderBy("createdAt","desc").onSnapshot(s=>{emergencies=s.docs.map(d=>({id:d.id,...d.data()})); render();});
-        db.collection("notifications").onSnapshot(s=>{notifications=s.docs.map(d=>({id:d.id,...d.data()})); render();});
+        db.collection("hospitalRequests").onSnapshot(s=>{requests=s.docs.map(d=>({id:d.id,...d.data()})); render();});
         db.collection("ambulanceAssignments").orderBy("assignedAt","desc").onSnapshot(s=>{assignments=s.docs.map(d=>({id:d.id,...d.data()})); render();});
         db.collection("hospitalResponses").orderBy("respondedAt","desc").onSnapshot(s=>{responses=s.docs.map(d=>({id:d.id,...d.data()})); render();});
       }

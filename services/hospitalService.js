@@ -21,80 +21,127 @@ const ensureDb = () => {
   }
 };
 
-const distancePoints = (km) => {
-  const d = Number(km);
-  if (!Number.isFinite(d)) return 5;
-  if (d < 1) return 50;
-  if (d < 2) return 40;
-  if (d < 3) return 30;
-  if (d < 5) return 20;
-  if (d < 10) return 10;
-  return 5;
-};
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const buildSelectionSummary = (hospital, emergencyType, distanceKm) => {
-  const dist = Number.isFinite(distanceKm) ? `${distanceKm.toFixed(2)}km` : "unknown distance";
-  return `${hospital.name} selected: ${emergencyType} specialist + ${hospital.icuBeds || 0} ICU beds + ${dist} away`;
-};
-
-const buildSelectionReason = (hospital, emergencyType, distanceKm) => {
-  const dist = Number.isFinite(distanceKm) ? `${distanceKm.toFixed(2)}km` : "unknown distance";
-  return `Nearest ${emergencyType} center with ICU availability (${dist})`;
-};
-
-const selectBestHospital = async (severity, emergencyType, location) => {
+const getNearbyHospitals = async (patientLocation, radiusKm = 20) => {
   ensureDb();
   const snapshot = await db.collection("hospitals").get();
   const hospitals = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-  const specialtyKey = emergencyType || "accident";
-
-  if (!hospitals.length) {
-    return null;
-  }
-
   const hasValidLocation =
-    location &&
-    Number.isFinite(Number(location.lat)) &&
-    Number.isFinite(Number(location.lng));
-
-  const scored = hospitals.map((hospital) => {
-    const specialtyMatch = (hospital.specialties || []).includes(specialtyKey) ? 100 : 0;
-    const icuPts = Math.max(0, Number(hospital.icuBeds) || 0) * 30;
-    const erPts = Math.max(0, Number(hospital.erBeds) || 0) * 10;
-    const realDistance =
-      hasValidLocation && hospital.location
+    patientLocation &&
+    Number.isFinite(Number(patientLocation.lat)) &&
+    Number.isFinite(Number(patientLocation.lng));
+  if (!hasValidLocation) return hospitals.map((hospital) => ({ ...hospital, distanceKm: null }));
+  return hospitals
+    .map((hospital) => {
+      const hasHospitalLocation =
+        Number.isFinite(Number(hospital.location?.lat)) &&
+        Number.isFinite(Number(hospital.location?.lng));
+      const distanceKm = hasHospitalLocation
         ? haversineDistance(
-            Number(location.lat),
-            Number(location.lng),
+            Number(patientLocation.lat),
+            Number(patientLocation.lng),
             Number(hospital.location.lat),
             Number(hospital.location.lng)
           )
-        : Number(hospital.distance) || 999;
-    const distPts = distancePoints(realDistance);
-    const score = specialtyMatch + icuPts + erPts + distPts;
-    return { hospital, score, distanceKm: realDistance };
+        : 999;
+      return { ...hospital, distanceKm };
+    })
+    .filter((hospital) => hospital.distanceKm <= radiusKm)
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+};
+
+const broadcastToNearbyHospitals = async (
+  emergencyId,
+  patientLocation,
+  emergencyType,
+  patientInfo,
+  requiredSpecialty
+) => {
+  ensureDb();
+  const nearbyHospitals = await getNearbyHospitals(patientLocation, 20);
+  const batch = db.batch();
+  const requests = nearbyHospitals.map((hospital) => {
+    const requestId = `req_${uuidv4()}`;
+    const requestDoc = {
+      id: requestId,
+      emergencyId,
+      hospitalId: hospital.id,
+      hospitalName: hospital.name || "Unknown Hospital",
+      patientInfo: {
+        name: patientInfo.name || "Unknown",
+        age: Number.isFinite(Number(patientInfo.age)) ? Number(patientInfo.age) : "Unknown",
+        bloodGroup: patientInfo.bloodGroup || "Unknown",
+        emergencyType: emergencyType || "accident",
+        severity: patientInfo.severity || "medium",
+        urgencyScore: Number.isFinite(Number(patientInfo.urgencyScore))
+          ? Number(patientInfo.urgencyScore)
+          : null,
+        location: patientLocation || null
+      },
+      requiredSpecialty: requiredSpecialty || "general",
+      hasSpecialist: false,
+      specialistName: null,
+      specialty: null,
+      availableICUBeds: null,
+      availableERBeds: null,
+      status: "pending",
+      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+      distanceKm: Number.isFinite(hospital.distanceKm) ? Number(hospital.distanceKm.toFixed(2)) : null
+    };
+    console.log("[Firestore Write] hospitalRequests:", requestDoc);
+    batch.set(db.collection("hospitalRequests").doc(requestId), requestDoc);
+    return {
+      id: hospital.id,
+      name: hospital.name || "Unknown Hospital",
+      location: hospital.location || null,
+      icuBeds: Number(hospital.icuBeds) || 0,
+      erBeds: Number(hospital.erBeds) || 0,
+      specialties: hospital.specialties || [],
+      distanceKm: Number.isFinite(hospital.distanceKm) ? Number(hospital.distanceKm.toFixed(2)) : null,
+      requestId
+    };
   });
+  await batch.commit();
+  return requests;
+};
 
-  scored.sort((a, b) => b.score - a.score);
-  const best = scored[0];
-  const hospital = best.hospital;
-  const score = best.score;
-  const distanceKm = best.distanceKm;
+const waitForSpecialistResponse = async (emergencyId, timeoutMs = 30000, intervalMs = 2000) => {
+  ensureDb();
+  const start = Date.now();
+  while (Date.now() - start <= timeoutMs) {
+    const responseSnap = await db
+      .collection("hospitalRequests")
+      .where("emergencyId", "==", emergencyId)
+      .where("status", "==", "responded")
+      .where("hasSpecialist", "==", true)
+      .orderBy("respondedAt", "asc")
+      .limit(1)
+      .get();
+    if (!responseSnap.empty) {
+      const response = responseSnap.docs[0].data();
+      logger.log(`Specialist response selected for ${emergencyId}: ${response.hospitalId}`);
+      return response;
+    }
+    await sleep(intervalMs);
+  }
+  return null;
+};
 
-  const selectionReason = buildSelectionReason(hospital, specialtyKey, distanceKm);
-  logger.log(buildSelectionSummary(hospital, specialtyKey, distanceKm));
-
+const selectBestHospital = async (_severity, emergencyType, patientLocation) => {
+  const nearby = await getNearbyHospitals(patientLocation, 20);
+  const best = nearby[0];
+  if (!best) return null;
   return {
-    id: hospital.id,
-    name: hospital.name,
-    icuBeds: hospital.icuBeds,
-    erBeds: hospital.erBeds,
-    specialties: hospital.specialties,
-    location: hospital.location,
-    distance: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
-    selectionReason,
-    score
+    id: best.id,
+    name: best.name,
+    icuBeds: Number(best.icuBeds) || 0,
+    erBeds: Number(best.erBeds) || 0,
+    specialties: best.specialties || [],
+    location: best.location || null,
+    distance: Number.isFinite(best.distanceKm) ? Number(best.distanceKm.toFixed(2)) : null,
+    selectionReason: `Nearest ${emergencyType || "general"} center`,
+    score: 0
   };
 };
 
@@ -133,6 +180,10 @@ const notifyHospital = async (hospitalId, payload) => {
 };
 
 module.exports = {
+  haversineDistance,
+  getNearbyHospitals,
   selectBestHospital,
+  broadcastToNearbyHospitals,
+  waitForSpecialistResponse,
   notifyHospital
 };

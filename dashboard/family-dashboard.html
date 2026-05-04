@@ -471,6 +471,8 @@
         <button type="button" class="btn-emergency" id="btnTriggerEmergency">🚨 TRIGGER EMERGENCY</button>
         <p id="emError" class="err hidden" role="alert"></p>
         <div id="emResponse" class="response-panel hidden" aria-live="polite"></div>
+        <div id="hospitalConfirmCard" class="response-panel hidden" aria-live="polite"></div>
+        <div id="ambulanceTrackCard" class="response-panel hidden" aria-live="polite"></div>
         <button type="button" class="btn hidden" id="btnReplayVoice" style="margin-top:10px">🔊 Replay Message</button>
       </section>
 
@@ -578,13 +580,20 @@
       </div>
     </div>
 
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
     <script>
       const API_BASE = "http://localhost:3000";
+      const firebaseConfig = { apiKey: "AIzaSyCn5UICOAbmB8ldkWf1d34FOgQvXlyFP50", authDomain: "emergency-response-8701b.firebaseapp.com", projectId: "emergency-response-8701b", storageBucket: "emergency-response-8701b.firebasestorage.app", messagingSenderId: "558477100061", appId: "1:558477100061:web:074e110297b131b86172f4" };
+      if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      const db = firebase.firestore();
       const BLOOD = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
       const LOCATION_KEY = "live_location";
       let currentLocation = null;
       let lastLocationWrite = 0;
       let lastDispatchResponse = null;
+      let unSubAmbulanceLocation = null;
+      let unSubHospitalNotification = null;
 
       function bloodClass(bg) {
         const m = {
@@ -823,6 +832,63 @@
         `;
       }
 
+      function speakText(text) {
+        if (!window.speechSynthesis) return;
+        const msg = new SpeechSynthesisUtterance(text);
+        msg.lang = "en-IN";
+        msg.rate = 0.9;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(msg);
+      }
+
+      function subscribeHospitalConfirmation(emergencyId) {
+        if (!emergencyId) return;
+        if (unSubHospitalNotification) unSubHospitalNotification();
+        unSubHospitalNotification = db
+          .collection("notifications")
+          .where("emergencyId", "==", emergencyId)
+          .onSnapshot((snap) => {
+            if (snap.empty) return;
+            const n = snap.docs[0].data() || {};
+            const card = document.getElementById("hospitalConfirmCard");
+            card.innerHTML = `
+              <div><strong>✅ HOSPITAL CONFIRMED</strong></div>
+              <div style="margin-top:8px">🏥 ${n.hospitalName || "Hospital"}</div>
+              <div>Specialist: ${n.specialistName || "On-call team"} | ICU Beds: ${n.confirmedIcuBeds || "Ready"}</div>
+              <div>ETA: ${n.eta || "—"}</div>
+              <a href="https://www.google.com/maps?q=${n.hospitalLocation?.lat || 0},${n.hospitalLocation?.lng || 0}" target="_blank" rel="noreferrer">🗺️ Hospital Location</a>
+            `;
+            card.classList.remove("hidden");
+            speakText(`${n.hospitalName || "Hospital"} is ready for your arrival. Specialist is waiting.`);
+          });
+      }
+
+      function subscribeAmbulanceLocation(ambulanceId, emergencyId, etaText) {
+        if (!ambulanceId) return;
+        if (unSubAmbulanceLocation) unSubAmbulanceLocation();
+        unSubAmbulanceLocation = db.collection("ambulanceLocations").doc(ambulanceId).onSnapshot((doc) => {
+          if (!doc.exists) return;
+          const a = doc.data() || {};
+          if (a.emergencyId && emergencyId && a.emergencyId !== emergencyId) return;
+          const secs = a.updatedAt
+            ? Math.max(0, Math.floor((Date.now() - new Date(a.updatedAt).getTime()) / 1000))
+            : null;
+          const stale = secs !== null && secs > 60;
+          const card = document.getElementById("ambulanceTrackCard");
+          card.innerHTML = `
+            <div><strong>🚑 AMBULANCE EN ROUTE</strong></div>
+            <div style="margin-top:8px">Type: ${(lastDispatchResponse?.ambulance?.type || "Unknown")} | Status: En route to you</div>
+            <div>Last updated: ${secs === null ? "—" : `${secs} seconds ago`}</div>
+            <div>Ambulance Location: 📍 ${a.lat ?? "—"}, ${a.lng ?? "—"}</div>
+            <a href="https://www.google.com/maps?q=${a.lat || 0},${a.lng || 0}" target="_blank" rel="noreferrer">🗺️ View on Google Maps</a>
+            <div style="margin-top:6px">Your Location: 📍 ${currentLocation?.lat ?? "—"}, ${currentLocation?.lng ?? "—"}</div>
+            <div>ETA: ~${etaText || "a few"} minutes</div>
+            ${stale ? '<div style="margin-top:6px;color:#ff9900">Location signal lost - ambulance still coming</div>' : ""}
+          `;
+          card.classList.remove("hidden");
+        });
+      }
+
       function pushHistory(entry) {
         let list = [];
         try {
@@ -943,6 +1009,15 @@
           panel.classList.remove("hidden");
           document.getElementById("btnReplayVoice").classList.remove("hidden");
           speakResponse(data);
+          speakText(
+            `Ambulance has been dispatched. ETA ${data?.ambulance?.estimatedArrival || "a few minutes"}. Please stay calm.`
+          );
+          subscribeHospitalConfirmation(data.emergencyId);
+          subscribeAmbulanceLocation(
+            data?.ambulance?.id,
+            data.emergencyId,
+            String(data?.ambulance?.estimatedArrival || "").replace(/[^\d]/g, "")
+          );
           const amb = data.ambulance || {};
           pushHistory({
             at: new Date().toISOString(),
