@@ -19,7 +19,7 @@ const createEmergency = async (req, res) => {
       return res.status(500).json({ error: "Firestore not configured" });
     }
 
-    const { userId, trigger, bloodGroup } = req.body;
+    const { userId, trigger, bloodGroup ,location} = req.body;
     if (!userId || !trigger) {
       return res.status(400).json({ error: "userId and trigger are required" });
     }
@@ -59,7 +59,7 @@ const createEmergency = async (req, res) => {
 
     await dispatchService.assignAmbulance(ambulance.id, emergencyId);
 
-    const hospital = await hospitalService.selectBestHospital(severity, emergencyType);
+    const hospital = await hospitalService.selectBestHospital(severity, emergencyType,location);
     if (!hospital) {
       await db.collection("emergencies").doc(emergencyId).update({ status: "awaiting_hospital" });
       return res.status(404).json({ error: "No suitable hospital available" });
